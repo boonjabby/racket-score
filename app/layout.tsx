@@ -9,7 +9,10 @@ export const metadata: Metadata = {
   applicationName: "Racket Score",
   manifest: `${basePath}/manifest.webmanifest`,
   appleWebApp: { capable: true, title: "Racket Score", statusBarStyle: "black-translucent" },
-  icons: { icon: `${basePath}/favicon.svg`, apple: `${basePath}/favicon.svg` },
+  icons: {
+    icon: [{ url: `${basePath}/icon-192.png`, sizes: "192x192", type: "image/png" }, { url: `${basePath}/favicon.svg`, type: "image/svg+xml" }],
+    apple: `${basePath}/apple-touch-icon.png`,
+  },
 };
 
 export const viewport: Viewport = { themeColor: "#102e28", width: "device-width", initialScale: 1, viewportFit: "cover" };
