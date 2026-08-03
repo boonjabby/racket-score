@@ -22,6 +22,20 @@ class GameRepository(context: Context) {
 
     fun loadOpeningServerNumber(): Int = preferences.getInt("opening-server-number", 2).coerceIn(1, 2)
 
+    fun loadSpeechEnabled(): Boolean = preferences.getBoolean("speech-enabled", true)
+
+    fun loadVibrationEnabled(): Boolean = preferences.getBoolean("vibration-enabled", true)
+
+    fun loadKeepScreenAwake(): Boolean = preferences.getBoolean("keep-screen-awake", false)
+
+    fun saveSettings(speechEnabled: Boolean, vibrationEnabled: Boolean, keepScreenAwake: Boolean) {
+        preferences.edit()
+            .putBoolean("speech-enabled", speechEnabled)
+            .putBoolean("vibration-enabled", vibrationEnabled)
+            .putBoolean("keep-screen-awake", keepScreenAwake)
+            .apply()
+    }
+
     fun saveOpeningSetup(server: Side, serverNumber: Int) {
         preferences.edit()
             .putString("opening-server", server.name)
