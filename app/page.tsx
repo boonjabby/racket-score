@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { announcement, applyRally, GameState, newGame, scorerCourt, serviceCourt, Side, Sport, SPORTS, tennisDisplay } from "./scoring";
 
 type Mode = "player" | "umpire";
 const DEFAULT_NAMES = { me: "My side", opponent: "Opponent" };
 const MATCH_STORAGE_KEY = "racket-score-active-match-v1";
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
+type WakeLockHandle = EventTarget & { released: boolean; release: () => Promise<void> };
 
 function speak(text: string, enabled: boolean) {
   if (!enabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -24,6 +25,10 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("player");
   const [watch, setWatch] = useState(false);
   const [sound, setSound] = useState(true);
+  const [vibration, setVibration] = useState(true);
+  const [keepAwake, setKeepAwake] = useState(false);
+  const [wakeSupported, setWakeSupported] = useState(true);
+  const [settings, setSettings] = useState(false);
   const [setup, setSetup] = useState(false);
   const [menu, setMenu] = useState(false);
   const [firstServer, setFirstServer] = useState<Side>("me");
@@ -33,7 +38,10 @@ export default function Home() {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [updateReady, setUpdateReady] = useState<ServiceWorker | null>(null);
+  const wakeLock = useRef<WakeLockHandle | null>(null);
 
+  /* Hydrate device state once from browser APIs and local storage. */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
     if ("serviceWorker" in navigator) {
@@ -59,6 +67,8 @@ export default function Home() {
         const prefs = JSON.parse(saved);
         if (prefs.names) setNames(prefs.names);
         if (typeof prefs.sound === "boolean") setSound(prefs.sound);
+        if (typeof prefs.vibration === "boolean") setVibration(prefs.vibration);
+        if (typeof prefs.keepAwake === "boolean") setKeepAwake(prefs.keepAwake);
       } catch { /* Ignore corrupt local preferences. */ }
     }
     const activeMatch = localStorage.getItem(MATCH_STORAGE_KEY);
@@ -75,14 +85,43 @@ export default function Home() {
         }
       } catch { localStorage.removeItem(MATCH_STORAGE_KEY); }
     }
+    setWakeSupported("wakeLock" in navigator);
     setHydrated(true);
     return () => {
       window.removeEventListener("beforeinstallprompt", onInstallPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => { localStorage.setItem("racket-score-preferences", JSON.stringify({ names, sound })); }, [names, sound]);
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("racket-score-preferences", JSON.stringify({ names, sound, vibration, keepAwake }));
+  }, [names, sound, vibration, keepAwake, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !keepAwake || !wakeSupported) return;
+    let cancelled = false;
+    const requestLock = async () => {
+      if (cancelled || document.visibilityState !== "visible" || wakeLock.current) return;
+      try {
+        const lock = await (navigator as Navigator & { wakeLock: { request: (type: "screen") => Promise<WakeLockHandle> } }).wakeLock.request("screen");
+        if (cancelled) { await lock.release(); return; }
+        wakeLock.current = lock;
+        lock.addEventListener("release", () => { if (wakeLock.current === lock) wakeLock.current = null; });
+      } catch { /* The phone may reject wake lock in power-saving mode. */ }
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") void requestLock(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    void requestLock();
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      const lock = wakeLock.current;
+      wakeLock.current = null;
+      void lock?.release();
+    };
+  }, [keepAwake, wakeSupported, hydrated]);
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify({ game, history, sport, mode, savedAt: Date.now() }));
@@ -96,7 +135,7 @@ export default function Home() {
     const next = applyRally(game, side);
     setHistory(items => [...items, game]);
     setGame(next);
-    if (navigator.vibrate) navigator.vibrate(35);
+    if (vibration && navigator.vibrate) navigator.vibrate(35);
     if (next.winner) speak(`${names[next.winner]} wins.`, sound);
     else speak(announcement(next, names), sound);
   }
@@ -150,7 +189,7 @@ export default function Home() {
       <button className="brand" onClick={() => setMenu(!menu)} aria-expanded={menu}><span>RS</span><strong>{sportInfo.short}</strong><i>⌄</i></button>
       <div className="header-actions">
         <span className="save-state" aria-label="Match saved on this device"><b /> Saved</span>
-        <button className={sound ? "icon active" : "icon"} onClick={() => setSound(!sound)} aria-label={sound ? "Mute score announcements" : "Enable score announcements"}>{sound ? "◖))" : "◖×"}</button>
+        <button className="icon settings-icon" onClick={() => setSettings(true)} aria-label="Open settings">⚙</button>
         <button className="icon" onClick={() => setMenu(!menu)} aria-label="Open game options">•••</button>
       </div>
     </header>
@@ -178,8 +217,25 @@ export default function Home() {
       <button className="start" onClick={begin}>Start game <span>→</span></button>
     </section></div>}
 
+    {settings && <div className="modal-backdrop" role="presentation"><section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <button className="close" onClick={() => setSettings(false)} aria-label="Close settings">×</button>
+      <div className="modal-kicker">MATCH SETTINGS</div><h1 id="settings-title">Court preferences</h1><p>These choices are saved on this phone.</p>
+      <div className="setting-list">
+        <SettingToggle title="Read scores aloud" detail="Announce every score from the server’s point of view." checked={sound} onChange={setSound} />
+        <SettingToggle title="Vibration feedback" detail="Give a short vibration when a rally is recorded." checked={vibration} onChange={setVibration} />
+        <SettingToggle title="Keep screen awake" detail={wakeSupported ? "Prevent the screen from sleeping while this app is open." : "This browser does not support screen wake lock."} checked={keepAwake && wakeSupported} disabled={!wakeSupported} onChange={setKeepAwake} />
+      </div>
+      <button className="start settings-done" onClick={() => setSettings(false)}>Done <span>✓</span></button>
+    </section></div>}
+
     {game.winner && !setup && <div className="winner" role="dialog" aria-modal="true"><Confetti /><div className="trophy">🏆</div><div className="modal-kicker">MATCH COMPLETE</div><h1>{names[game.winner]} win!</h1><p>{game.scores.me} – {game.scores.opponent}</p><button className="start" onClick={() => setSetup(true)}>Next game <span>→</span></button></div>}
   </main>;
+}
+
+function SettingToggle({ title, detail, checked, disabled = false, onChange }: { title: string; detail: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
+  return <button className="setting-row" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}>
+    <span><strong>{title}</strong><small>{detail}</small></span><i className={checked ? "toggle on" : "toggle"}><b /></i>
+  </button>;
 }
 
 function ScoreSide({ side, label, value, serving, onScore, game }: { side: Side; label: string; value: string | number; serving: boolean; onScore: (side: Side) => void; game: GameState }) {
