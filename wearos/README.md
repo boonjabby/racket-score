@@ -33,3 +33,12 @@ The prototype uses `minSdk 30`, covering Samsung Galaxy Watch 4 and newer Wear O
 - `app/` — Wear OS Compose interface, speech, vibration and local persistence.
 
 Phone/watch synchronization is intentionally deferred. The watch works independently first; a Data Layer bridge can be added once real-watch interaction is proven.
+
+## Verification status
+
+- Five native scoring-engine tests pass.
+- The debug APK builds successfully with Android SDK 36.
+- Installed and interaction-tested on a 384×384 round Wear OS 5 emulator.
+- Verified a rally updates the score and moves the serving position to the opposite court.
+
+The next verification step is installation on a physical Samsung Galaxy Watch.
