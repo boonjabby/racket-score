@@ -1,4 +1,5 @@
 export type Side = "me" | "opponent";
+export type CourtSide = "left" | "right";
 export type Sport = "pickleball-doubles" | "pickleball-singles" | "tennis" | "badminton" | "table-tennis" | "squash" | "racquetball";
 
 export type GameState = {
@@ -7,6 +8,7 @@ export type GameState = {
   tennisPoints: Record<Side, number>;
   server: Side;
   serverNumber: 1 | 2;
+  serverCourt: CourtSide;
   openingServe: boolean;
   winner: Side | null;
 };
@@ -22,10 +24,11 @@ export const SPORTS: { id: Sport; label: string; short: string }[] = [
 ];
 
 export function newGame(sport: Sport, server: Side, serverNumber: 1 | 2 = 2): GameState {
-  return { sport, scores: { me: 0, opponent: 0 }, tennisPoints: { me: 0, opponent: 0 }, server, serverNumber, openingServe: sport === "pickleball-doubles" && serverNumber === 2, winner: null };
+  return { sport, scores: { me: 0, opponent: 0 }, tennisPoints: { me: 0, opponent: 0 }, server, serverNumber, serverCourt: "right", openingServe: sport === "pickleball-doubles" && serverNumber === 2, winner: null };
 }
 
 const other = (side: Side): Side => side === "me" ? "opponent" : "me";
+const oppositeCourt = (court: CourtSide): CourtSide => court === "right" ? "left" : "right";
 
 function targetFor(sport: Sport) {
   if (sport.startsWith("pickleball")) return 11;
@@ -58,15 +61,19 @@ export function applyRally(state: GameState, rallyWinner: Side): GameState {
   if (state.sport === "pickleball-doubles") {
     if (rallyWinner === state.server) {
       next.scores[rallyWinner] += 1;
+      next.serverCourt = oppositeCourt(serviceCourt(state));
     } else if (state.openingServe) {
       next.server = rallyWinner;
       next.serverNumber = 1;
+      next.serverCourt = "right";
       next.openingServe = false;
     } else if (state.serverNumber === 1) {
       next.serverNumber = 2;
+      next.serverCourt = oppositeCourt(serviceCourt(state));
     } else {
       next.server = rallyWinner;
       next.serverNumber = 1;
+      next.serverCourt = "right";
     }
   } else if (state.sport === "pickleball-singles" || state.sport === "racquetball") {
     if (rallyWinner === state.server) next.scores[rallyWinner] += 1;
@@ -85,8 +92,15 @@ export function applyRally(state: GameState, rallyWinner: Side): GameState {
   return next;
 }
 
-export function serviceCourt(state: GameState): "left" | "right" {
+export function serviceCourt(state: GameState): CourtSide {
+  if (state.sport === "pickleball-doubles" && state.serverCourt) return state.serverCourt;
   return state.scores[state.server] % 2 === 0 ? "right" : "left";
+}
+
+/** Physical court as seen by the scorer at the near baseline. */
+export function scorerCourt(state: GameState): CourtSide {
+  const court = serviceCourt(state);
+  return state.server === "opponent" ? oppositeCourt(court) : court;
 }
 
 export function tennisDisplay(points: Record<Side, number>, side: Side) {

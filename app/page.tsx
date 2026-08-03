@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { announcement, applyRally, GameState, newGame, serviceCourt, Side, Sport, SPORTS, tennisDisplay } from "./scoring";
+import { announcement, applyRally, GameState, newGame, scorerCourt, serviceCourt, Side, Sport, SPORTS, tennisDisplay } from "./scoring";
 
 type Mode = "player" | "umpire";
 const DEFAULT_NAMES = { me: "My side", opponent: "Opponent" };
@@ -66,6 +66,7 @@ export default function Home() {
       try {
         const snapshot = JSON.parse(activeMatch);
         if (snapshot.game?.sport && snapshot.sport) {
+          if (!snapshot.game.serverCourt) snapshot.game.serverCourt = serviceCourt(snapshot.game);
           setGame(snapshot.game);
           setHistory(Array.isArray(snapshot.history) ? snapshot.history : []);
           setSport(snapshot.sport);
@@ -182,10 +183,12 @@ export default function Home() {
 }
 
 function ScoreSide({ side, label, value, serving, onScore, game }: { side: Side; label: string; value: string | number; serving: boolean; onScore: (side: Side) => void; game: GameState }) {
+  const court = scorerCourt(game);
+  const courtLabel = game.server === "opponent" ? `back ${court}` : court;
   return <button className={`score-side ${side} ${serving ? "serving" : ""}`} onClick={() => onScore(side)} aria-label={`Point to ${label}. Score ${value}`}>
     <div className="side-top"><span className="side-label">{label}</span>{serving && <span className="serve-pill"><b>●</b> SERVE</span>}</div>
     <strong className="score">{value}</strong>
-    {serving && <div className="service-detail"><span>{serviceCourt(game)} court</span>{game.sport === "pickleball-doubles" && <b>SERVER {game.serverNumber}</b>}</div>}
+    {serving && <div className={`service-detail court-${court}`}><span>{courtLabel} court</span>{game.sport === "pickleball-doubles" && <b>SERVER {game.serverNumber}</b>}</div>}
     <span className="tap-hint">TAP TO ADD POINT</span>
   </button>;
 }
