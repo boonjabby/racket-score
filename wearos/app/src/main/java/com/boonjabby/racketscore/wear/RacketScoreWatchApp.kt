@@ -1,5 +1,10 @@
 package com.boonjabby.racketscore.wear
 
+import android.app.Activity
+import android.view.WindowManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -22,8 +27,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -45,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.Text
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.GameState
 import com.boonjabby.racketscore.engine.PickleballEngine
@@ -61,9 +71,26 @@ fun RacketScoreWatchApp() {
     var undoStack by remember { mutableStateOf(repository.loadUndoStack()) }
     var openingServer by remember { mutableStateOf(repository.loadOpeningServer()) }
     var openingServerNumber by remember { mutableStateOf(repository.loadOpeningServerNumber()) }
+    var speechEnabled by remember { mutableStateOf(repository.loadSpeechEnabled()) }
+    var vibrationEnabled by remember { mutableStateOf(repository.loadVibrationEnabled()) }
+    var keepScreenAwake by remember { mutableStateOf(repository.loadKeepScreenAwake()) }
+    var settingsVisible by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf(WatchScreen.SCORE) }
 
     DisposableEffect(feedback) { onDispose(feedback::close) }
+    DisposableEffect(keepScreenAwake) {
+        val window = (context as? Activity)?.window
+        if (keepScreenAwake) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { }
+    }
+
+    fun saveSettings(speech: Boolean, vibration: Boolean, awake: Boolean) {
+        speechEnabled = speech
+        vibrationEnabled = vibration
+        keepScreenAwake = awake
+        repository.saveSettings(speech, vibration, awake)
+    }
 
     fun save(next: GameState, history: List<GameState>) {
         game = next
@@ -75,9 +102,9 @@ fun RacketScoreWatchApp() {
         if (game.winner != null) return
         val next = PickleballEngine.rally(game, winner)
         save(next, (undoStack + game).takeLast(30))
-        feedback.tap()
+        if (vibrationEnabled) feedback.tap()
         val matchWinner = next.winner
-        feedback.announce(if (matchWinner != null) winnerName(matchWinner) + " wins." else PickleballEngine.announcement(next))
+        if (speechEnabled) feedback.announce(if (matchWinner != null) winnerName(matchWinner) + " wins." else PickleballEngine.announcement(next))
     }
 
     fun startGame(server: Side, serverNumber: Int) {
@@ -87,7 +114,7 @@ fun RacketScoreWatchApp() {
         repository.saveOpeningSetup(server, serverNumber)
         save(next, emptyList())
         screen = WatchScreen.SCORE
-        feedback.announce(PickleballEngine.announcement(next))
+        if (speechEnabled) feedback.announce(PickleballEngine.announcement(next))
     }
 
     if (screen == WatchScreen.SETUP) {
@@ -100,10 +127,19 @@ fun RacketScoreWatchApp() {
             onUndo = {
                 val previous = undoStack.lastOrNull() ?: return@ScoreScreen
                 save(previous, undoStack.dropLast(1))
-                feedback.tap()
+                if (vibrationEnabled) feedback.tap()
             },
             onNewGame = { screen = WatchScreen.SETUP },
             onRematch = { startGame(openingServer, openingServerNumber) },
+            settingsVisible = settingsVisible,
+            onOpenSettings = { settingsVisible = true },
+            onCloseSettings = { settingsVisible = false },
+            speechEnabled = speechEnabled,
+            vibrationEnabled = vibrationEnabled,
+            keepScreenAwake = keepScreenAwake,
+            onSpeechChanged = { saveSettings(it, vibrationEnabled, keepScreenAwake) },
+            onVibrationChanged = { saveSettings(speechEnabled, it, keepScreenAwake) },
+            onKeepAwakeChanged = { saveSettings(speechEnabled, vibrationEnabled, it) },
         )
     }
 }
@@ -116,6 +152,15 @@ private fun ScoreScreen(
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
     onRematch: () -> Unit,
+    settingsVisible: Boolean,
+    onOpenSettings: () -> Unit,
+    onCloseSettings: () -> Unit,
+    speechEnabled: Boolean,
+    vibrationEnabled: Boolean,
+    keepScreenAwake: Boolean,
+    onSpeechChanged: (Boolean) -> Unit,
+    onVibrationChanged: (Boolean) -> Unit,
+    onKeepAwakeChanged: (Boolean) -> Unit,
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
@@ -135,7 +180,95 @@ private fun ScoreScreen(
                 onClick = { onPoint(Side.ME) },
             )
         }
+        if (!settingsVisible && game.winner == null) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(24.dp)
+                    .pointerInput(Unit) {
+                        var drag = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { drag = 0f },
+                            onHorizontalDrag = { _, amount -> drag += amount },
+                            onDragEnd = { if (drag < -35f) onOpenSettings() },
+                        )
+                    }
+                    .semantics { contentDescription = "Swipe left for settings" },
+            )
+        }
+        AnimatedVisibility(
+            visible = settingsVisible,
+            enter = slideInHorizontally(initialOffsetX = { it }),
+            exit = slideOutHorizontally(targetOffsetX = { it }),
+        ) {
+            SettingsPanel(
+                speechEnabled,
+                vibrationEnabled,
+                keepScreenAwake,
+                onSpeechChanged,
+                onVibrationChanged,
+                onKeepAwakeChanged,
+                onCloseSettings,
+            )
+        }
         game.winner?.let { WinnerOverlay(it, game, onRematch, onNewGame) }
+    }
+}
+
+@Composable
+private fun SettingsPanel(
+    speechEnabled: Boolean,
+    vibrationEnabled: Boolean,
+    keepScreenAwake: Boolean,
+    onSpeechChanged: (Boolean) -> Unit,
+    onVibrationChanged: (Boolean) -> Unit,
+    onKeepAwakeChanged: (Boolean) -> Unit,
+    onClose: () -> Unit,
+) {
+    var drag by remember { mutableStateOf(0f) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { drag = 0f },
+                    onHorizontalDrag = { _, amount -> drag += amount },
+                    onDragEnd = { if (drag > 35f) onClose() },
+                )
+            }
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 30.dp, vertical = 34.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("SETTINGS", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text("Match options", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(10.dp))
+        SettingRow("Spoken score", speechEnabled) { onSpeechChanged(!speechEnabled) }
+        SettingRow("Vibration", vibrationEnabled) { onVibrationChanged(!vibrationEnabled) }
+        SettingRow("Keep screen on", keepScreenAwake) { onKeepAwakeChanged(!keepScreenAwake) }
+        Spacer(Modifier.height(10.dp))
+        ActionButton("DONE", onClose)
+        Text("or swipe right", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.padding(8.dp))
+    }
+}
+
+@Composable
+private fun SettingRow(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF202020))
+            .clickable(role = Role.Switch, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(if (enabled) "ON" else "OFF", color = if (enabled) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -224,9 +357,13 @@ private fun SetupScreen(onStart: (Side, Int) -> Unit, onCancel: () -> Unit) {
     var server by remember { mutableStateOf(Side.ME) }
     var serverNumber by remember { mutableStateOf(2) }
     Column(
-        Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 24.dp, vertical = 18.dp),
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 30.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         Text("NEW GAME", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         Text("First serve", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
