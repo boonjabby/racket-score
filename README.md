@@ -2,9 +2,9 @@
 
 A touch-first Progressive Web App for scoring pickleball and other racquet sports. The top court is the opponent; the bottom court is your side. Tap the side that won the rally.
 
-## Live app
+## Live app - Open in Chrome or Safari
 
-- Current private preview: <https://racket-score-app.boonjabby.chatgpt.site>
+- https://boonjabby.github.io/racket-score/
 - GitHub Pages: deployed automatically after the repository is published and Pages is configured to use **GitHub Actions**.
 
 ## Included
