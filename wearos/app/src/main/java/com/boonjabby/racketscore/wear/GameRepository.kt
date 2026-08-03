@@ -5,6 +5,7 @@ import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.GameState
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
+import com.boonjabby.racketscore.engine.Sport
 
 class GameRepository(context: Context) {
     private val preferences = context.getSharedPreferences("racket-score-watch", Context.MODE_PRIVATE)
@@ -22,6 +23,10 @@ class GameRepository(context: Context) {
 
     fun loadOpeningServerNumber(): Int = preferences.getInt("opening-server-number", 2).coerceIn(1, 2)
 
+    fun loadOpeningSport(): Sport = runCatching {
+        Sport.valueOf(preferences.getString("opening-sport", Sport.PICKLEBALL_DOUBLES.name)!!)
+    }.getOrDefault(Sport.PICKLEBALL_DOUBLES)
+
     fun loadSpeechEnabled(): Boolean = preferences.getBoolean("speech-enabled", true)
 
     fun loadVibrationEnabled(): Boolean = preferences.getBoolean("vibration-enabled", true)
@@ -36,10 +41,11 @@ class GameRepository(context: Context) {
             .apply()
     }
 
-    fun saveOpeningSetup(server: Side, serverNumber: Int) {
+    fun saveOpeningSetup(server: Side, serverNumber: Int, sport: Sport) {
         preferences.edit()
             .putString("opening-server", server.name)
             .putInt("opening-server-number", serverNumber)
+            .putString("opening-sport", sport.name)
             .apply()
     }
 
@@ -51,8 +57,12 @@ class GameRepository(context: Context) {
     }
 
     private fun encode(state: GameState) = listOf(
+        "v2",
+        state.sport.name,
         state.meScore,
         state.opponentScore,
+        state.meTennisPoints,
+        state.opponentTennisPoints,
         state.server.name,
         state.serverNumber,
         state.serverCourt.name,
@@ -62,14 +72,28 @@ class GameRepository(context: Context) {
 
     private fun decode(encoded: String): GameState? = runCatching {
         val values = encoded.split(",")
+        if (values.firstOrNull() != "v2") return@runCatching decodeLegacy(values)
         GameState(
-            meScore = values[0].toInt(),
-            opponentScore = values[1].toInt(),
-            server = Side.valueOf(values[2]),
-            serverNumber = values[3].toInt(),
-            serverCourt = CourtSide.valueOf(values[4]),
-            openingServe = values[5].toBooleanStrict(),
-            winner = values.getOrNull(6)?.takeIf(String::isNotEmpty)?.let(Side::valueOf),
+            sport = Sport.valueOf(values[1]),
+            meScore = values[2].toInt(),
+            opponentScore = values[3].toInt(),
+            meTennisPoints = values[4].toInt(),
+            opponentTennisPoints = values[5].toInt(),
+            server = Side.valueOf(values[6]),
+            serverNumber = values[7].toInt(),
+            serverCourt = CourtSide.valueOf(values[8]),
+            openingServe = values[9].toBooleanStrict(),
+            winner = values.getOrNull(10)?.takeIf(String::isNotEmpty)?.let(Side::valueOf),
         )
     }.getOrNull()
+
+    private fun decodeLegacy(values: List<String>) = GameState(
+        meScore = values[0].toInt(),
+        opponentScore = values[1].toInt(),
+        server = Side.valueOf(values[2]),
+        serverNumber = values[3].toInt(),
+        serverCourt = CourtSide.valueOf(values[4]),
+        openingServe = values[5].toBooleanStrict(),
+        winner = values.getOrNull(6)?.takeIf(String::isNotEmpty)?.let(Side::valueOf),
+    )
 }
