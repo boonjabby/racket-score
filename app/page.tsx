@@ -28,7 +28,8 @@ export default function Home() {
   const [firstNumber, setFirstNumber] = useState<1 | 2>(2);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register(`${basePath}/sw.js`).catch(() => undefined);
     const saved = localStorage.getItem("racket-score-preferences");
     if (saved) {
       try {

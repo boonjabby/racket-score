@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a scoring or display problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      options: [Pickleball doubles, Pickleball singles, Tennis or padel, Badminton, Table tennis, Squash, Racquetball]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened?
+      description: Include the score, server and taps that led to the problem.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: Samsung Galaxy S24, Chrome

@@ -2,6 +2,11 @@
 
 A touch-first Progressive Web App for scoring pickleball and other racquet sports. The top court is the opponent; the bottom court is your side. Tap the side that won the rally.
 
+## Live app
+
+- Current private preview: <https://racket-score-app.boonjabby.chatgpt.site>
+- GitHub Pages: deployed automatically after the repository is published and Pages is configured to use **GitHub Actions**.
+
 ## Included
 
 - Pickleball doubles with opening `0–0–2`, first/second server rotation, side-out scoring, and service-court indication
@@ -28,6 +33,18 @@ Open the local address shown in the terminal. To create a production build:
 ```bash
 pnpm build
 ```
+
+Run the scoring tests with `pnpm test`. Create the static GitHub Pages build with `pnpm build:pages`; its output is written to `out/`.
+
+## GitHub Pages
+
+The workflow at `.github/workflows/pages.yml` tests and deploys the app whenever `main` changes. After creating the GitHub repository:
+
+1. Open **Settings → Pages**.
+2. Under **Build and deployment**, select **GitHub Actions**.
+3. Push to `main`, or run **Test and deploy PWA** from the Actions tab.
+
+The build accounts for the repository-name path, so the manifest, service worker, icons and offline cache continue to work on a project Pages URL.
 
 ## Project structure
 

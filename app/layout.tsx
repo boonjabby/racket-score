@@ -1,13 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+
 export const metadata: Metadata = {
   title: "Racket Score",
   description: "Fast, spoken scoring for pickleball and racquet sports.",
   applicationName: "Racket Score",
-  manifest: "/manifest.webmanifest",
+  manifest: `${basePath}/manifest.webmanifest`,
   appleWebApp: { capable: true, title: "Racket Score", statusBarStyle: "black-translucent" },
-  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
+  icons: { icon: `${basePath}/favicon.svg`, apple: `${basePath}/favicon.svg` },
 };
 
 export const viewport: Viewport = { themeColor: "#102e28", width: "device-width", initialScale: 1, viewportFit: "cover" };
