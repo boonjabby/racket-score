@@ -6,8 +6,24 @@ import { announcement, applyRally, GameState, newGame, scorerCourt, serviceCourt
 type Mode = "player" | "umpire";
 const DEFAULT_NAMES = { me: "My side", opponent: "Opponent" };
 const MATCH_STORAGE_KEY = "racket-score-active-match-v1";
+const COMPLETED_STORAGE_KEY = "racket-score-completed-matches-v1";
+const MAX_COMPLETED_MATCHES = 30;
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 type WakeLockHandle = EventTarget & { released: boolean; release: () => Promise<void> };
+type MatchSetup = { server: Side; serverNumber: 1 | 2 };
+type CompletedMatch = {
+  id: string;
+  sport: Sport;
+  names: Record<Side, string>;
+  scores: Record<Side, number>;
+  winner: Side;
+  completedAt: number;
+  setup: MatchSetup;
+};
+
+function newMatchId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 function speak(text: string, enabled: boolean) {
   if (!enabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -21,6 +37,10 @@ export default function Home() {
   const [sport, setSport] = useState<Sport>("pickleball-doubles");
   const [game, setGame] = useState<GameState>(() => newGame("pickleball-doubles", "me", 2));
   const [history, setHistory] = useState<GameState[]>([]);
+  const [matches, setMatches] = useState<CompletedMatch[]>([]);
+  const [matchId, setMatchId] = useState("current");
+  const [matchSetup, setMatchSetup] = useState<MatchSetup>({ server: "me", serverNumber: 2 });
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [names, setNames] = useState(DEFAULT_NAMES);
   const [mode, setMode] = useState<Mode>("player");
   const [watch, setWatch] = useState(false);
@@ -80,10 +100,19 @@ export default function Home() {
           setGame(snapshot.game);
           setHistory(Array.isArray(snapshot.history) ? snapshot.history : []);
           setSport(snapshot.sport);
+          if (typeof snapshot.matchId === "string") setMatchId(snapshot.matchId);
+          if (snapshot.matchSetup?.server) setMatchSetup(snapshot.matchSetup);
           if (snapshot.mode === "player" || snapshot.mode === "umpire") setMode(snapshot.mode);
           setRestored(snapshot.game.scores?.me > 0 || snapshot.game.scores?.opponent > 0 || snapshot.history?.length > 0);
         }
       } catch { localStorage.removeItem(MATCH_STORAGE_KEY); }
+    }
+    const completedMatches = localStorage.getItem(COMPLETED_STORAGE_KEY);
+    if (completedMatches) {
+      try {
+        const parsed = JSON.parse(completedMatches);
+        if (Array.isArray(parsed)) setMatches(parsed.slice(0, MAX_COMPLETED_MATCHES));
+      } catch { localStorage.removeItem(COMPLETED_STORAGE_KEY); }
     }
     setWakeSupported("wakeLock" in navigator);
     setHydrated(true);
@@ -124,8 +153,12 @@ export default function Home() {
   }, [keepAwake, wakeSupported, hydrated]);
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify({ game, history, sport, mode, savedAt: Date.now() }));
-  }, [game, history, sport, mode, hydrated]);
+    localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify({ game, history, sport, mode, matchId, matchSetup, savedAt: Date.now() }));
+  }, [game, history, sport, mode, matchId, matchSetup, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify(matches));
+  }, [matches, hydrated]);
 
   const sportInfo = useMemo(() => SPORTS.find(item => item.id === sport)!, [sport]);
   const display = (side: Side) => sport === "tennis" ? tennisDisplay(game.tennisPoints, side) : game.scores[side];
@@ -136,7 +169,11 @@ export default function Home() {
     setHistory(items => [...items, game]);
     setGame(next);
     if (vibration && navigator.vibrate) navigator.vibrate(35);
-    if (next.winner) speak(`${names[next.winner]} wins.`, sound);
+    if (next.winner) {
+      const completed: CompletedMatch = { id: matchId, sport, names: { ...names }, scores: { ...next.scores }, winner: next.winner, completedAt: Date.now(), setup: matchSetup };
+      setMatches(items => [completed, ...items.filter(item => item.id !== matchId)].slice(0, MAX_COMPLETED_MATCHES));
+      speak(`${names[next.winner]} wins.`, sound);
+    }
     else speak(announcement(next, names), sound);
   }
 
@@ -149,12 +186,27 @@ export default function Home() {
 
   function begin() {
     const next = newGame(sport, firstServer, firstNumber);
-    setGame(next); setHistory([]); setSetup(false); setMenu(false);
+    setGame(next); setHistory([]); setMatchId(newMatchId()); setMatchSetup({ server: firstServer, serverNumber: firstNumber }); setSetup(false); setMenu(false);
     speak(announcement(next, names), sound);
   }
 
   function chooseSport(nextSport: Sport) {
-    setSport(nextSport); setGame(newGame(nextSport, firstServer, firstNumber)); setHistory([]); setMenu(false);
+    setSport(nextSport); setGame(newGame(nextSport, firstServer, firstNumber)); setHistory([]); setMatchId(newMatchId()); setMatchSetup({ server: firstServer, serverNumber: firstNumber }); setMenu(false);
+  }
+
+  function rematch(match?: CompletedMatch) {
+    const nextSport = match?.sport ?? sport;
+    const nextNames = match?.names ?? names;
+    const nextSetup = match?.setup ?? matchSetup;
+    setSport(nextSport); setNames(nextNames); setFirstServer(nextSetup.server); setFirstNumber(nextSetup.serverNumber);
+    setGame(newGame(nextSport, nextSetup.server, nextSetup.serverNumber)); setHistory([]); setMatchId(newMatchId()); setMatchSetup(nextSetup);
+    setHistoryOpen(false); setSetup(false); setMenu(false);
+    speak(announcement(newGame(nextSport, nextSetup.server, nextSetup.serverNumber), nextNames), sound);
+  }
+
+  function deleteMatch(match: CompletedMatch) {
+    if (!window.confirm(`Remove the ${match.names.me} vs ${match.names.opponent} match from this phone?`)) return;
+    setMatches(items => items.filter(item => item.id !== match.id));
   }
 
   async function installApp() {
@@ -198,6 +250,7 @@ export default function Home() {
       <p>Choose a sport</p>
       <div className="sport-list">{SPORTS.map(item => <button className={item.id === sport ? "selected" : ""} key={item.id} onClick={() => chooseSport(item.id)}>{item.label}<span>{item.id === sport ? "✓" : ""}</span></button>)}</div>
       <div className="menu-row"><span>View</span><div className="segmented"><button className={mode === "player" ? "selected" : ""} onClick={() => setMode("player")}>Player</button><button className={mode === "umpire" ? "selected" : ""} onClick={() => setMode("umpire")}>Umpire</button></div></div>
+      <button className="watch-toggle history-toggle" onClick={() => { setHistoryOpen(true); setMenu(false); }}><span><b>Match history</b><small>{matches.length ? `${matches.length} saved on this phone` : "No completed matches yet"}</small></span><strong>›</strong></button>
       <button className="watch-toggle" onClick={() => { setWatch(!watch); setMenu(false); }}>{watch ? "Exit watch preview" : "Preview on watch"}<span>›</span></button>
       {!installed && installPrompt && <button className="install-button" onClick={installApp}><span><b>↓</b><i>Install Racket Score</i><small>Add it to this phone for quick access</small></span><strong>Install</strong></button>}
       {installed && <div className="installed-note"><span>✓</span> Installed on this device</div>}
@@ -228,8 +281,22 @@ export default function Home() {
       <button className="start settings-done" onClick={() => setSettings(false)}>Done <span>✓</span></button>
     </section></div>}
 
-    {game.winner && !setup && <div className="winner" role="dialog" aria-modal="true"><Confetti /><div className="trophy">🏆</div><div className="modal-kicker">MATCH COMPLETE</div><h1>{names[game.winner]} win!</h1><p>{game.scores.me} – {game.scores.opponent}</p><button className="start" onClick={() => setSetup(true)}>Next game <span>→</span></button></div>}
+    {historyOpen && <div className="modal-backdrop" role="presentation"><section className="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <button className="close" onClick={() => setHistoryOpen(false)} aria-label="Close match history">×</button>
+      <div className="modal-kicker">ON THIS PHONE</div><h1 id="history-title">Match history</h1><p>Your latest {MAX_COMPLETED_MATCHES} completed matches stay private on this device.</p>
+      {matches.length ? <div className="match-list">{matches.map(match => <article className="match-card" key={match.id}>
+        <div className="match-meta"><span>{SPORTS.find(item => item.id === match.sport)?.label}</span><time dateTime={new Date(match.completedAt).toISOString()}>{formatMatchDate(match.completedAt)}</time></div>
+        <div className="match-result"><div><strong>{match.names[match.winner]}</strong><small>beat {match.names[match.winner === "me" ? "opponent" : "me"]}</small></div><b>{match.scores.me}–{match.scores.opponent}</b></div>
+        <div className="match-actions"><button onClick={() => deleteMatch(match)} aria-label={`Remove match from ${formatMatchDate(match.completedAt)}`}>Remove</button><button className="rematch" onClick={() => rematch(match)}>Rematch <span>→</span></button></div>
+      </article>)}</div> : <div className="empty-history"><span>🏆</span><strong>No completed matches yet</strong><small>Your first finished match will appear here automatically.</small></div>}
+    </section></div>}
+
+    {game.winner && !setup && <div className="winner" role="dialog" aria-modal="true"><Confetti /><div className="trophy">🏆</div><div className="modal-kicker">MATCH COMPLETE</div><h1>{names[game.winner]} win!</h1><p>{game.scores.me} – {game.scores.opponent}</p><div className="winner-actions"><button className="start" onClick={() => rematch()}>Rematch <span>↻</span></button><button className="winner-secondary" onClick={() => setSetup(true)}>New setup</button></div></div>}
   </main>;
+}
+
+function formatMatchDate(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(timestamp);
 }
 
 function SettingToggle({ title, detail, checked, disabled = false, onChange }: { title: string; detail: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
