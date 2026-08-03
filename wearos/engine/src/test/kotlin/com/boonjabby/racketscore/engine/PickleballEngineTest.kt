@@ -43,4 +43,35 @@ class PickleballEngineTest {
         val next = PickleballEngine.rally(state, Side.ME)
         assertEquals(Side.ME, next.winner)
     }
+
+    @Test
+    fun `pickleball singles only scores on serve`() {
+        val start = PickleballEngine.newGame(sport = Sport.PICKLEBALL_SINGLES)
+        val sideOut = PickleballEngine.rally(start, Side.OPPONENT)
+        assertEquals(0, sideOut.opponentScore)
+        assertEquals(Side.OPPONENT, sideOut.server)
+    }
+
+    @Test
+    fun `badminton wins at thirty without a two point margin`() {
+        val state = GameState(sport = Sport.BADMINTON, meScore = 29, opponentScore = 29)
+        assertEquals(Side.ME, PickleballEngine.rally(state, Side.ME).winner)
+    }
+
+    @Test
+    fun `table tennis changes serve every two points before deuce`() {
+        val start = PickleballEngine.newGame(sport = Sport.TABLE_TENNIS)
+        val one = PickleballEngine.rally(start, Side.ME)
+        val two = PickleballEngine.rally(one, Side.OPPONENT)
+        assertEquals(Side.ME, one.server)
+        assertEquals(Side.OPPONENT, two.server)
+    }
+
+    @Test
+    fun `tennis displays deuce and advantage`() {
+        val deuce = GameState(sport = Sport.TENNIS, meTennisPoints = 3, opponentTennisPoints = 3)
+        assertEquals("40", PickleballEngine.displayScore(deuce, Side.ME))
+        val advantage = PickleballEngine.rally(deuce, Side.ME)
+        assertEquals("AD", PickleballEngine.displayScore(advantage, Side.ME))
+    }
 }

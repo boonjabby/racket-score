@@ -59,6 +59,7 @@ import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.GameState
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
+import com.boonjabby.racketscore.engine.Sport
 
 private enum class WatchScreen { SCORE, SETUP }
 
@@ -71,10 +72,12 @@ fun RacketScoreWatchApp() {
     var undoStack by remember { mutableStateOf(repository.loadUndoStack()) }
     var openingServer by remember { mutableStateOf(repository.loadOpeningServer()) }
     var openingServerNumber by remember { mutableStateOf(repository.loadOpeningServerNumber()) }
+    var openingSport by remember { mutableStateOf(repository.loadOpeningSport()) }
     var speechEnabled by remember { mutableStateOf(repository.loadSpeechEnabled()) }
     var vibrationEnabled by remember { mutableStateOf(repository.loadVibrationEnabled()) }
     var keepScreenAwake by remember { mutableStateOf(repository.loadKeepScreenAwake()) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var setupSport by remember { mutableStateOf(game.sport) }
     var screen by remember { mutableStateOf(WatchScreen.SCORE) }
 
     DisposableEffect(feedback) { onDispose(feedback::close) }
@@ -107,18 +110,19 @@ fun RacketScoreWatchApp() {
         if (speechEnabled) feedback.announce(if (matchWinner != null) winnerName(matchWinner) + " wins." else PickleballEngine.announcement(next))
     }
 
-    fun startGame(server: Side, serverNumber: Int) {
-        val next = PickleballEngine.newGame(server, serverNumber)
+    fun startGame(sport: Sport, server: Side, serverNumber: Int) {
+        val next = PickleballEngine.newGame(server, serverNumber, sport)
+        openingSport = sport
         openingServer = server
         openingServerNumber = serverNumber
-        repository.saveOpeningSetup(server, serverNumber)
+        repository.saveOpeningSetup(server, serverNumber, sport)
         save(next, emptyList())
         screen = WatchScreen.SCORE
         if (speechEnabled) feedback.announce(PickleballEngine.announcement(next))
     }
 
     if (screen == WatchScreen.SETUP) {
-        SetupScreen(onStart = ::startGame, onCancel = { screen = WatchScreen.SCORE })
+        SetupScreen(sport = setupSport, onStart = ::startGame, onCancel = { screen = WatchScreen.SCORE })
     } else {
         ScoreScreen(
             game = game,
@@ -129,8 +133,11 @@ fun RacketScoreWatchApp() {
                 save(previous, undoStack.dropLast(1))
                 if (vibrationEnabled) feedback.tap()
             },
-            onNewGame = { screen = WatchScreen.SETUP },
-            onRematch = { startGame(openingServer, openingServerNumber) },
+            onNewGame = {
+                setupSport = game.sport
+                screen = WatchScreen.SETUP
+            },
+            onRematch = { startGame(openingSport, openingServer, openingServerNumber) },
             settingsVisible = settingsVisible,
             onOpenSettings = { settingsVisible = true },
             onCloseSettings = { settingsVisible = false },
@@ -140,6 +147,11 @@ fun RacketScoreWatchApp() {
             onSpeechChanged = { saveSettings(it, vibrationEnabled, keepScreenAwake) },
             onVibrationChanged = { saveSettings(speechEnabled, it, keepScreenAwake) },
             onKeepAwakeChanged = { saveSettings(speechEnabled, vibrationEnabled, it) },
+            onSportSelected = {
+                setupSport = it
+                settingsVisible = false
+                screen = WatchScreen.SETUP
+            },
         )
     }
 }
@@ -161,13 +173,14 @@ private fun ScoreScreen(
     onSpeechChanged: (Boolean) -> Unit,
     onVibrationChanged: (Boolean) -> Unit,
     onKeepAwakeChanged: (Boolean) -> Unit,
+    onSportSelected: (Sport) -> Unit,
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
             ScoreHalf(
                 modifier = Modifier.weight(1f),
                 side = Side.OPPONENT,
-                score = game.opponentScore,
+                score = PickleballEngine.displayScore(game, Side.OPPONENT),
                 game = game,
                 onClick = { onPoint(Side.OPPONENT) },
             )
@@ -175,7 +188,7 @@ private fun ScoreScreen(
             ScoreHalf(
                 modifier = Modifier.weight(1f),
                 side = Side.ME,
-                score = game.meScore,
+                score = PickleballEngine.displayScore(game, Side.ME),
                 game = game,
                 onClick = { onPoint(Side.ME) },
             )
@@ -209,6 +222,8 @@ private fun ScoreScreen(
                 onSpeechChanged,
                 onVibrationChanged,
                 onKeepAwakeChanged,
+                game.sport,
+                onSportSelected,
                 onCloseSettings,
             )
         }
@@ -224,6 +239,8 @@ private fun SettingsPanel(
     onSpeechChanged: (Boolean) -> Unit,
     onVibrationChanged: (Boolean) -> Unit,
     onKeepAwakeChanged: (Boolean) -> Unit,
+    currentSport: Sport,
+    onSportSelected: (Sport) -> Unit,
     onClose: () -> Unit,
 ) {
     var drag by remember { mutableStateOf(0f) }
@@ -248,6 +265,11 @@ private fun SettingsPanel(
         SettingRow("Spoken score", speechEnabled) { onSpeechChanged(!speechEnabled) }
         SettingRow("Vibration", vibrationEnabled) { onVibrationChanged(!vibrationEnabled) }
         SettingRow("Keep screen on", keepScreenAwake) { onKeepAwakeChanged(!keepScreenAwake) }
+        Spacer(Modifier.height(12.dp))
+        Text("SPORT", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Sport.values().forEach { sport ->
+            ChoiceRow(sport.label, currentSport == sport) { onSportSelected(sport) }
+        }
         Spacer(Modifier.height(10.dp))
         ActionButton("DONE", onClose)
         Text("or swipe right", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.padding(8.dp))
@@ -273,7 +295,7 @@ private fun SettingRow(label: String, enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ScoreHalf(modifier: Modifier, side: Side, score: Int, game: GameState, onClick: () -> Unit) {
+private fun ScoreHalf(modifier: Modifier, side: Side, score: String, game: GameState, onClick: () -> Unit) {
     val serving = game.server == side
     Box(
         modifier
@@ -293,7 +315,7 @@ private fun ScoreHalf(modifier: Modifier, side: Side, score: Int, game: GameStat
             },
         )
         Text(
-            text = score.toString(),
+            text = score,
             color = Color.White,
             fontSize = 52.sp,
             fontWeight = FontWeight.Black,
@@ -314,7 +336,12 @@ private fun BoxScope.ServerPosition(game: GameState, side: Side) {
     ) {
         if (court == CourtSide.RIGHT) Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("SERVE ${game.serverNumber}", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            Text(
+                if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVE ${game.serverNumber}" else "SERVE",
+                color = Color.White,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+            )
             Text(
                 if (side == Side.OPPONENT) "BACK ${court.name}" else court.name,
                 color = Color.LightGray,
@@ -353,7 +380,7 @@ private fun NetButton(symbol: String, description: String, enabled: Boolean, onC
 }
 
 @Composable
-private fun SetupScreen(onStart: (Side, Int) -> Unit, onCancel: () -> Unit) {
+private fun SetupScreen(sport: Sport, onStart: (Sport, Side, Int) -> Unit, onCancel: () -> Unit) {
     var server by remember { mutableStateOf(Side.ME) }
     var serverNumber by remember { mutableStateOf(2) }
     Column(
@@ -366,17 +393,21 @@ private fun SetupScreen(onStart: (Side, Int) -> Unit, onCancel: () -> Unit) {
         verticalArrangement = Arrangement.Top,
     ) {
         Text("NEW GAME", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        Text("First serve", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
+        Text(sport.shortLabel, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
         Spacer(Modifier.height(9.dp))
+        Text("First serve", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(5.dp))
         ChoiceRow("My side", server == Side.ME) { server = Side.ME }
         ChoiceRow("Opponent", server == Side.OPPONENT) { server = Side.OPPONENT }
-        Spacer(Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            SmallChoice("Server 1", serverNumber == 1) { serverNumber = 1 }
-            SmallChoice("Server 2", serverNumber == 2) { serverNumber = 2 }
+        if (sport == Sport.PICKLEBALL_DOUBLES) {
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                SmallChoice("Server 1", serverNumber == 1) { serverNumber = 1 }
+                SmallChoice("Server 2", serverNumber == 2) { serverNumber = 2 }
+            }
         }
         Spacer(Modifier.height(9.dp))
-        ActionButton("START") { onStart(server, serverNumber) }
+        ActionButton("START") { onStart(sport, server, serverNumber) }
         Text("Cancel", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp).clickable(onClick = onCancel))
     }
 }
