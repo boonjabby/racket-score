@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -76,7 +76,8 @@ fun RacketScoreWatchApp() {
         val next = PickleballEngine.rally(game, winner)
         save(next, (undoStack + game).takeLast(30))
         feedback.tap()
-        feedback.announce(if (next.winner != null) winnerName(next.winner) + " wins." else PickleballEngine.announcement(next))
+        val matchWinner = next.winner
+        feedback.announce(if (matchWinner != null) winnerName(matchWinner) + " wins." else PickleballEngine.announcement(next))
     }
 
     fun startGame(server: Side, serverNumber: Int) {
@@ -152,12 +153,16 @@ private fun ScoreHalf(modifier: Modifier, side: Side, score: Int, game: GameStat
             color = Color.LightGray,
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 7.dp),
+            modifier = if (side == Side.OPPONENT) {
+                Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 7.dp)
+            } else {
+                Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 7.dp)
+            },
         )
         Text(
             text = score.toString(),
             color = Color.White,
-            fontSize = 66.sp,
+            fontSize = 52.sp,
             fontWeight = FontWeight.Black,
             modifier = Modifier.align(Alignment.Center),
         )
@@ -169,7 +174,7 @@ private fun ScoreHalf(modifier: Modifier, side: Side, score: Int, game: GameStat
 private fun BoxScope.ServerPosition(game: GameState, side: Side) {
     val court = PickleballEngine.scorerCourt(game)
     Row(
-        Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(horizontal = 22.dp, vertical = 5.dp).semantics {
+        Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(horizontal = 34.dp, vertical = 16.dp).semantics {
             contentDescription = "${winnerName(side)} serving, server ${game.serverNumber}, ${court.name.lowercase()} court"
         },
         verticalAlignment = Alignment.CenterVertically,
@@ -189,7 +194,8 @@ private fun BoxScope.ServerPosition(game: GameState, side: Side) {
 
 @Composable
 private fun NetControls(canUndo: Boolean, onUndo: () -> Unit, onNewGame: () -> Unit) {
-    Box(Modifier.fillMaxWidth().height(12.dp).background(Color.White), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().height(42.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().height(4.dp).background(Color.White))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
             NetButton("↶", "Undo last rally", canUndo, onUndo)
             NetButton("⟳", "Set up new game", true, onNewGame)
@@ -203,12 +209,13 @@ private fun NetButton(symbol: String, description: String, enabled: Boolean, onC
         Modifier
             .size(34.dp)
             .clip(CircleShape)
-            .background(if (enabled) Color.White else Color.DarkGray)
+            .background(if (enabled) Color.Black else Color.DarkGray)
+            .border(1.dp, Color.White, CircleShape)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Text(symbol, color = Color.Black, fontSize = 20.sp, fontWeight = FontWeight.Black)
+        Text(symbol, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
     }
 }
 
