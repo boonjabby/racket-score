@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { announcement, applyRally, GameState, newGame, serviceCourt, Side, Sport, SPORTS, tennisDisplay } from "./scoring";
+import { announcement, applyRally, GameState, newGame, scorerCourt, serviceCourt, Side, Sport, SPORTS, tennisDisplay } from "./scoring";
 
 type Mode = "player" | "umpire";
 const DEFAULT_NAMES = { me: "My side", opponent: "Opponent" };
+const MATCH_STORAGE_KEY = "racket-score-active-match-v1";
+type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 function speak(text: string, enabled: boolean) {
   if (!enabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -26,10 +28,31 @@ export default function Home() {
   const [menu, setMenu] = useState(false);
   const [firstServer, setFirstServer] = useState<Side>("me");
   const [firstNumber, setFirstNumber] = useState<1 | 2>(2);
+  const [hydrated, setHydrated] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const [updateReady, setUpdateReady] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register(`${basePath}/sw.js`).catch(() => undefined);
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${basePath}/sw.js`).then(registration => {
+        if (registration.waiting) setUpdateReady(registration.waiting);
+        registration.addEventListener("updatefound", () => {
+          const worker = registration.installing;
+          worker?.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) setUpdateReady(worker);
+          });
+        });
+      }).catch(() => undefined);
+      navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
+    }
+    const onInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
+    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); };
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    setInstalled(window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
     const saved = localStorage.getItem("racket-score-preferences");
     if (saved) {
       try {
@@ -38,9 +61,32 @@ export default function Home() {
         if (typeof prefs.sound === "boolean") setSound(prefs.sound);
       } catch { /* Ignore corrupt local preferences. */ }
     }
+    const activeMatch = localStorage.getItem(MATCH_STORAGE_KEY);
+    if (activeMatch) {
+      try {
+        const snapshot = JSON.parse(activeMatch);
+        if (snapshot.game?.sport && snapshot.sport) {
+          if (!snapshot.game.serverCourt) snapshot.game.serverCourt = serviceCourt(snapshot.game);
+          setGame(snapshot.game);
+          setHistory(Array.isArray(snapshot.history) ? snapshot.history : []);
+          setSport(snapshot.sport);
+          if (snapshot.mode === "player" || snapshot.mode === "umpire") setMode(snapshot.mode);
+          setRestored(snapshot.game.scores?.me > 0 || snapshot.game.scores?.opponent > 0 || snapshot.history?.length > 0);
+        }
+      } catch { localStorage.removeItem(MATCH_STORAGE_KEY); }
+    }
+    setHydrated(true);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
   useEffect(() => { localStorage.setItem("racket-score-preferences", JSON.stringify({ names, sound })); }, [names, sound]);
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify({ game, history, sport, mode, savedAt: Date.now() }));
+  }, [game, history, sport, mode, hydrated]);
 
   const sportInfo = useMemo(() => SPORTS.find(item => item.id === sport)!, [sport]);
   const display = (side: Side) => sport === "tennis" ? tennisDisplay(game.tennisPoints, side) : game.scores[side];
@@ -72,6 +118,17 @@ export default function Home() {
     setSport(nextSport); setGame(newGame(nextSport, firstServer, firstNumber)); setHistory([]); setMenu(false);
   }
 
+  async function installApp() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === "accepted") setInstallPrompt(null);
+  }
+
+  function applyUpdate() {
+    updateReady?.postMessage({ type: "SKIP_WAITING" });
+  }
+
   const centerControls = <div className="net-controls">
     <button onClick={undo} disabled={!history.length} aria-label="Undo last rally" title="Undo">↶</button>
     <span className="net-label">NET</span>
@@ -92,6 +149,7 @@ export default function Home() {
     <header>
       <button className="brand" onClick={() => setMenu(!menu)} aria-expanded={menu}><span>RS</span><strong>{sportInfo.short}</strong><i>⌄</i></button>
       <div className="header-actions">
+        <span className="save-state" aria-label="Match saved on this device"><b /> Saved</span>
         <button className={sound ? "icon active" : "icon"} onClick={() => setSound(!sound)} aria-label={sound ? "Mute score announcements" : "Enable score announcements"}>{sound ? "◖))" : "◖×"}</button>
         <button className="icon" onClick={() => setMenu(!menu)} aria-label="Open game options">•••</button>
       </div>
@@ -102,10 +160,14 @@ export default function Home() {
       <div className="sport-list">{SPORTS.map(item => <button className={item.id === sport ? "selected" : ""} key={item.id} onClick={() => chooseSport(item.id)}>{item.label}<span>{item.id === sport ? "✓" : ""}</span></button>)}</div>
       <div className="menu-row"><span>View</span><div className="segmented"><button className={mode === "player" ? "selected" : ""} onClick={() => setMode("player")}>Player</button><button className={mode === "umpire" ? "selected" : ""} onClick={() => setMode("umpire")}>Umpire</button></div></div>
       <button className="watch-toggle" onClick={() => { setWatch(!watch); setMenu(false); }}>{watch ? "Exit watch preview" : "Preview on watch"}<span>›</span></button>
+      {!installed && installPrompt && <button className="install-button" onClick={installApp}><span><b>↓</b><i>Install Racket Score</i><small>Add it to this phone for quick access</small></span><strong>Install</strong></button>}
+      {installed && <div className="installed-note"><span>✓</span> Installed on this device</div>}
       <div className="name-fields"><label>Your label<input value={names.me} onChange={e => setNames({ ...names, me: e.target.value || "My side" })} /></label><label>Opponent label<input value={names.opponent} onChange={e => setNames({ ...names, opponent: e.target.value || "Opponent" })} /></label></div>
     </div>}
 
     <section className="score-shell">{court}</section>
+    {restored && <div className="toast" role="status"><span>↻</span><div><strong>Match restored</strong><small>Your score was saved on this device.</small></div><button onClick={() => setRestored(false)} aria-label="Dismiss">×</button></div>}
+    {updateReady && <div className="update-bar" role="status"><div><strong>Update ready</strong><span>Refresh when you’re between rallies.</span></div><button onClick={applyUpdate}>Update now</button></div>}
     {watch && <button className="exit-watch" onClick={() => setWatch(false)}>Exit watch preview</button>}
 
     {setup && <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
@@ -121,10 +183,12 @@ export default function Home() {
 }
 
 function ScoreSide({ side, label, value, serving, onScore, game }: { side: Side; label: string; value: string | number; serving: boolean; onScore: (side: Side) => void; game: GameState }) {
+  const court = scorerCourt(game);
+  const courtLabel = game.server === "opponent" ? `back ${court}` : court;
   return <button className={`score-side ${side} ${serving ? "serving" : ""}`} onClick={() => onScore(side)} aria-label={`Point to ${label}. Score ${value}`}>
     <div className="side-top"><span className="side-label">{label}</span>{serving && <span className="serve-pill"><b>●</b> SERVE</span>}</div>
     <strong className="score">{value}</strong>
-    {serving && <div className="service-detail"><span>{serviceCourt(game)} court</span>{game.sport === "pickleball-doubles" && <b>SERVER {game.serverNumber}</b>}</div>}
+    {serving && <div className={`service-detail court-${court}`}><span>{courtLabel} court</span>{game.sport === "pickleball-doubles" && <b>SERVER {game.serverNumber}</b>}</div>}
     <span className="tap-hint">TAP TO ADD POINT</span>
   </button>;
 }

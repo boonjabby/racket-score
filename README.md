@@ -17,6 +17,9 @@ A touch-first Progressive Web App for scoring pickleball and other racquet sport
 - Monochrome circular watch preview
 - Center-net undo and new-game controls
 - Local preference storage, vibration, winner trophy, and confetti
+- Automatic recovery of an interrupted match on the same device
+- Android install prompt with 192px, 512px, maskable, and Apple touch icons
+- Safe in-app notification when an offline update is ready
 - Installable manifest and offline service worker
 
 ## Run locally
