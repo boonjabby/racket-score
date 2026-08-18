@@ -9,10 +9,14 @@ import com.google.android.gms.wearable.WearableListenerService
 class LiveScoreListenerService : WearableListenerService() {
     override fun onDataChanged(events: DataEventBuffer) {
         val repository = PhoneMatchRepository(this)
+        val cloudShare = CloudShareRepository(this)
         events.forEach { event ->
             if (event.type != DataEvent.TYPE_CHANGED || event.dataItem.uri.path != LIVE_MATCH_PATH) return@forEach
             val encoded = DataMapItem.fromDataItem(event.dataItem).dataMap.getString(SNAPSHOT_KEY) ?: return@forEach
-            LiveMatchSnapshotCodec.decode(encoded)?.let(repository::save)
+            LiveMatchSnapshotCodec.decode(encoded)?.let { snapshot ->
+                repository.save(snapshot)
+                cloudShare.publish(snapshot)
+            }
         }
     }
 
