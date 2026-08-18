@@ -1,6 +1,7 @@
 package com.boonjabby.racketscore.mobile
 
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -41,12 +45,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boonjabby.racketscore.engine.LiveMatchSnapshot
 import com.boonjabby.racketscore.engine.LiveMatchSnapshotCodec
+import com.boonjabby.racketscore.engine.GameState
+import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
@@ -78,14 +86,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class PhoneScreen { LIVE, HISTORY }
+private enum class PhoneScreen { SCORE, WATCH_LIVE, HISTORY }
 
 @Composable
 private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     var latest by remember { mutableStateOf(repository.loadLatest()) }
     var history by remember { mutableStateOf(repository.loadHistory()) }
-    var screen by remember { mutableStateOf(PhoneScreen.LIVE) }
-    var displayMode by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val manualRepository = remember { ManualGameRepository(context) }
+    var screen by rememberSaveable { mutableStateOf(PhoneScreen.SCORE) }
+    var displayMode by rememberSaveable { mutableStateOf(false) }
+    var dismissedWinnerKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     DisposableEffect(repository) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -104,29 +115,28 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         when {
-            displayMode && latest != null -> LiveBoard(latest!!, courtDisplay = true)
-            screen == PhoneScreen.HISTORY -> HistoryScreen(history)
-            latest != null -> LiveBoard(latest!!, courtDisplay = false)
+            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(latest!!, courtDisplay = true, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
+            screen == PhoneScreen.SCORE -> ManualScoreScreen(onWatchLive = { screen = PhoneScreen.WATCH_LIVE }, onHistory = { screen = PhoneScreen.HISTORY })
+            screen == PhoneScreen.HISTORY -> HistoryScreen(manualRepository.loadHistory(), history)
+            latest != null -> LiveBoard(latest!!, courtDisplay = false, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
             else -> WaitingScreen()
         }
 
-        if (!displayMode) {
+        if (!displayMode && screen != PhoneScreen.SCORE) {
             Row(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("RACKET SCORE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeaderButton(if (screen == PhoneScreen.HISTORY) "LIVE" else "HISTORY") {
-                        screen = if (screen == PhoneScreen.HISTORY) PhoneScreen.LIVE else PhoneScreen.HISTORY
-                    }
-                    if (latest != null && screen == PhoneScreen.LIVE) HeaderButton("COURT VIEW") { displayMode = true }
+                    HeaderButton("BACK TO SCORE") { screen = PhoneScreen.SCORE }
+                    if (latest != null && screen == PhoneScreen.WATCH_LIVE) HeaderButton("COURT VIEW") { displayMode = true }
                 }
             }
-        } else {
+        } else if (displayMode && screen == PhoneScreen.WATCH_LIVE) {
             Box(
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().navigationBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
                     .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text("EXIT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
@@ -134,20 +144,36 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 }
 
 @Composable
-private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
+private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean, dismissedWinnerKey: String?, onDismissWinner: () -> Unit) {
     val game = snapshot.game
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
-            ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), game.server == Side.OPPONENT, game.sport, game.serverNumber, Modifier.weight(1f))
-            Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
-            ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), game.server == Side.ME, game.sport, game.serverNumber, Modifier.weight(1f))
+        val boardModifier = Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)
+        if (landscape) {
+            Row(boardModifier) {
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = true, Modifier.weight(1f))
+                Box(Modifier.fillMaxHeight().width(8.dp).background(Color.White))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = true, Modifier.weight(1f))
+            }
+        } else {
+            Column(boardModifier) {
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = false, Modifier.weight(1f))
+                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = false, Modifier.weight(1f))
+            }
         }
-        game.winner?.let { WinnerCelebration(it) }
+        val winnerKey = "${snapshot.matchId}:${snapshot.sequence}"
+        if (dismissedWinnerKey != winnerKey) game.winner?.let { WinnerCelebration(it, onClose = onDismissWinner) }
     }
 }
 
 @Composable
-private fun WinnerCelebration(winner: Side) {
+fun WinnerCelebration(
+    winner: Side,
+    onClose: () -> Unit,
+    onRematch: (() -> Unit)? = null,
+    onNewSetup: (() -> Unit)? = null,
+) {
     val transition = rememberInfiniteTransition(label = "confetti")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -177,22 +203,41 @@ private fun WinnerCelebration(winner: Side) {
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
             )
+            Spacer(Modifier.height(18.dp))
+            onRematch?.let { CelebrationButton("REMATCH", it) }
+            onNewSetup?.let { CelebrationButton("NEW SETUP", it) }
+            CelebrationButton("CLOSE", onClose)
         }
     }
 }
 
 @Composable
-private fun ScorePanel(label: String, score: String, serving: Boolean, sport: Sport, serverNumber: Int, modifier: Modifier) {
-    Box(modifier.fillMaxWidth().background(if (serving) Color(0xFF162C26) else Color.Black)) {
+private fun CelebrationButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(18.dp)).background(Color.White)
+            .clickable(onClick = onClick).padding(horizontal = 28.dp, vertical = 10.dp),
+    ) { Text(label, color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+}
+
+@Composable
+private fun ScorePanel(label: String, score: String, side: Side, game: GameState, horizontalLayout: Boolean, modifier: Modifier) {
+    val serving = game.server == side
+    val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
+    Box(sizedModifier.background(if (serving) Color(0xFF162C26) else Color.Black)) {
         Text(label, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(22.dp))
         Text(score, color = Color.White, fontSize = 104.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) {
             Text(
-                if (sport == Sport.PICKLEBALL_DOUBLES) "SERVING · SERVER $serverNumber" else "SERVING",
+                buildString {
+                    append(if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVER ${game.serverNumber}" else "SERVING")
+                    append(" · ")
+                    if (side == Side.OPPONENT) append("BACK ")
+                    append(PickleballEngine.scorerCourt(game).name)
+                },
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(22.dp),
+                modifier = Modifier.align(if (PickleballEngine.scorerCourt(game) == CourtSide.LEFT) Alignment.BottomStart else Alignment.BottomEnd).padding(22.dp),
             )
         }
     }
@@ -208,7 +253,8 @@ private fun WaitingScreen() {
 }
 
 @Composable
-private fun HistoryScreen(history: List<LiveMatchSnapshot>) {
+private fun HistoryScreen(phoneHistory: List<LiveMatchSnapshot>, watchHistory: List<LiveMatchSnapshot>) {
+    val history = (phoneHistory + watchHistory).sortedByDescending { it.updatedAtMillis }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 72.dp, bottom = 30.dp)) {
         Text("MATCH HISTORY", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
