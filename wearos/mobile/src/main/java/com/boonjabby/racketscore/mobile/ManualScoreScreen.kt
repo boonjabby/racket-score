@@ -53,9 +53,9 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
     var undo by remember { mutableStateOf(repository.loadUndo()) }
     var preferences by remember { mutableStateOf(repository.loadPreferences()) }
     var menuOpen by remember { mutableStateOf(false) }
+    var sportOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var setupOpen by remember { mutableStateOf(false) }
-    var setupSport by remember { mutableStateOf(game.sport) }
     var firstServer by remember { mutableStateOf(Side.ME) }
     var firstNumber by remember { mutableStateOf(2) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -89,7 +89,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Box(Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFF1D1D1D)).clickable { menuOpen = true }.padding(horizontal = 14.dp, vertical = 9.dp)) {
+                Box(Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFF1D1D1D)).clickable { sportOpen = true }.padding(horizontal = 14.dp, vertical = 9.dp)) {
                     TextLabel("${game.sport.shortLabel.uppercase()}  ▾", 11)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,15 +100,15 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 
             if (preferences.umpireMode || landscape) {
                 Row(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, game, horizontalLayout = true, Modifier.weight(1f), ::rally)
                     NetBar(vertical = true, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, game, horizontalLayout = true, Modifier.weight(1f), ::rally)
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, game, horizontalLayout = false, Modifier.weight(1f), ::rally)
                     NetBar(vertical = false, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, game, horizontalLayout = false, Modifier.weight(1f), ::rally)
                 }
             }
         }
@@ -120,9 +120,13 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
             onHistory = { menuOpen = false; onHistory() },
             onSettings = { menuOpen = false; settingsOpen = true },
         )
+        if (sportOpen) SportOverlay(game.sport, onClose = { sportOpen = false }) { sport ->
+            val next = PickleballEngine.newGame(firstServer, firstNumber, sport)
+            repository.start(next); game = next; undo = emptyList(); sportOpen = false
+        }
         if (settingsOpen) SettingsOverlay(preferences, onChange = { preferences = it; repository.savePreferences(it) }, onClose = { settingsOpen = false })
-        if (setupOpen) SetupOverlay(setupSport, firstServer, firstNumber, onSport = { setupSport = it }, onServer = { firstServer = it }, onNumber = { firstNumber = it }, onClose = { setupOpen = false }) {
-            val next = PickleballEngine.newGame(firstServer, firstNumber, setupSport)
+        if (setupOpen) SetupOverlay(game.sport, firstServer, firstNumber, onServer = { firstServer = it }, onNumber = { firstNumber = it }, onClose = { setupOpen = false }) {
+            val next = PickleballEngine.newGame(firstServer, firstNumber, game.sport)
             repository.start(next); game = next; undo = emptyList(); setupOpen = false
             if (preferences.speech) feedback.announce(PickleballEngine.announcement(next))
         }
@@ -131,9 +135,10 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 }
 
 @Composable
-private fun ManualSide(side: Side, game: GameState, modifier: Modifier, onRally: (Side) -> Unit) {
+private fun ManualSide(side: Side, game: GameState, horizontalLayout: Boolean, modifier: Modifier, onRally: (Side) -> Unit) {
     val serving = game.server == side
-    Box(modifier.fillMaxWidth().background(if (serving) Color(0xFF143128) else Color.Black).clickable { onRally(side) }) {
+    val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
+    Box(sizedModifier.background(if (serving) Color(0xFF143128) else Color.Black).clickable { onRally(side) }) {
         TextLabel(if (side == Side.ME) "MY SIDE" else "OPPONENT", 12, Modifier.align(Alignment.TopStart).padding(20.dp), Color.LightGray)
         androidx.compose.material3.Text(PickleballEngine.displayScore(game, side), color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) TextLabel(
@@ -188,13 +193,21 @@ private fun SettingsOverlay(value: ManualPreferences, onChange: (ManualPreferenc
 }
 
 @Composable
-private fun SetupOverlay(sport: Sport, server: Side, number: Int, onSport: (Sport) -> Unit, onServer: (Side) -> Unit, onNumber: (Int) -> Unit, onClose: () -> Unit, onStart: () -> Unit) {
+private fun SetupOverlay(sport: Sport, server: Side, number: Int, onServer: (Side) -> Unit, onNumber: (Int) -> Unit, onClose: () -> Unit, onStart: () -> Unit) {
     OverlayCard("NEW GAME", "Set up the match", onClose) {
-        Sport.values().forEach { MenuRow(it.label, if (it == sport) "Selected ✓" else "", { onSport(it) }) }
-        Spacer(Modifier.height(8.dp))
+        TextLabel("${sport.label.uppercase()} · change from the sport box", 11, Modifier.padding(vertical = 10.dp), Color.LightGray)
         ToggleRow("My side serves first", server == Side.ME) { onServer(if (server == Side.ME) Side.OPPONENT else Side.ME) }
         if (sport == Sport.PICKLEBALL_DOUBLES) ToggleRow("Opening server 2", number == 2) { onNumber(if (number == 2) 1 else 2) }
         MenuRow("Start game", "Begin with these settings", onStart)
+    }
+}
+
+@Composable
+private fun SportOverlay(current: Sport, onClose: () -> Unit, onSport: (Sport) -> Unit) {
+    OverlayCard("SPORT", "Choose scoring rules", onClose) {
+        Sport.values().forEach { sport ->
+            MenuRow(sport.label, if (sport == current) "Current sport ✓" else "", { onSport(sport) })
+        }
     }
 }
 

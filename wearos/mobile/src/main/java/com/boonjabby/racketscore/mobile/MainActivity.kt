@@ -149,15 +149,15 @@ private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
         val boardModifier = Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)
         if (landscape) {
             Row(boardModifier) {
-                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, Modifier.weight(1f))
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = true, Modifier.weight(1f))
                 Box(Modifier.fillMaxHeight().width(8.dp).background(Color.White))
-                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, Modifier.weight(1f))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = true, Modifier.weight(1f))
             }
         } else {
             Column(boardModifier) {
-                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, Modifier.weight(1f))
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = false, Modifier.weight(1f))
                 Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
-                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, Modifier.weight(1f))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = false, Modifier.weight(1f))
             }
         }
         game.winner?.let { WinnerCelebration(it) }
@@ -200,9 +200,10 @@ fun WinnerCelebration(winner: Side) {
 }
 
 @Composable
-private fun ScorePanel(label: String, score: String, side: Side, game: GameState, modifier: Modifier) {
+private fun ScorePanel(label: String, score: String, side: Side, game: GameState, horizontalLayout: Boolean, modifier: Modifier) {
     val serving = game.server == side
-    Box(modifier.fillMaxWidth().background(if (serving) Color(0xFF162C26) else Color.Black)) {
+    val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
+    Box(sizedModifier.background(if (serving) Color(0xFF162C26) else Color.Black)) {
         Text(label, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(22.dp))
         Text(score, color = Color.White, fontSize = 104.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) {
