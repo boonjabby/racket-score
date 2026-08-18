@@ -278,6 +278,7 @@ export default function Home() {
         <SettingToggle title="Vibration feedback" detail="Give a short vibration when a rally is recorded." checked={vibration} onChange={setVibration} />
         <SettingToggle title="Keep screen awake" detail={wakeSupported ? "Prevent the screen from sleeping while this app is open." : "This browser does not support screen wake lock."} checked={keepAwake && wakeSupported} disabled={!wakeSupported} onChange={setKeepAwake} />
       </div>
+      <a className="privacy-link" href={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/privacy.html`}>Privacy policy <span>›</span></a>
       <button className="start settings-done" onClick={() => setSettings(false)}>Done <span>✓</span></button>
     </section></div>}
 

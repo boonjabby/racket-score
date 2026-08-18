@@ -21,6 +21,8 @@ A touch-first Progressive Web App for scoring pickleball and other racquet sport
 - Android install prompt with 192px, 512px, maskable, and Apple touch icons
 - Safe in-app notification when an offline update is ready
 - Installable manifest and offline service worker
+- Optional live sharing with expiring spectator codes and automatic cloud cleanup
+- Public privacy policy at `privacy.html`
 
 ## Run locally
 

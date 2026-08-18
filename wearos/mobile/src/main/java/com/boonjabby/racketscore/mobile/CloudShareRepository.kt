@@ -118,9 +118,8 @@ class CloudShareRepository(context: Context) {
                 val session = ensureSession()
                 request(
                     path = "/rest/v1/live_matches?public_code=eq.$code",
-                    method = "PATCH",
+                    method = "DELETE",
                     token = session.token,
-                    body = JSONObject().put("status", "closed"),
                     prefer = "return=minimal",
                 )
                 preferences.edit {

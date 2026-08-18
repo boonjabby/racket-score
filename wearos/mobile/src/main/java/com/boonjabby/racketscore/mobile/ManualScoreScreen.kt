@@ -1,7 +1,9 @@
 package com.boonjabby.racketscore.mobile
 
 import android.app.Activity
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -201,11 +203,15 @@ private fun MenuOverlay(onClose: () -> Unit, onNew: () -> Unit, onWatch: () -> U
 
 @Composable
 private fun SettingsOverlay(value: ManualPreferences, onChange: (ManualPreferences) -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
     OverlayCard("MATCH SETTINGS", "Court preferences", onClose) {
         ToggleRow("Read scores aloud", value.speech) { onChange(value.copy(speech = !value.speech)) }
         ToggleRow("Vibration feedback", value.vibration) { onChange(value.copy(vibration = !value.vibration)) }
         ToggleRow("Keep screen awake", value.keepAwake) { onChange(value.copy(keepAwake = !value.keepAwake)) }
         ToggleRow("Umpire left / right view", value.umpireMode) { onChange(value.copy(umpireMode = !value.umpireMode)) }
+        MenuRow("Privacy policy", "How local scores and optional live sharing are handled") {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL)))
+        }
     }
 }
 
@@ -286,3 +292,5 @@ private fun OverlayCard(kicker: String, title: String, onClose: () -> Unit, cont
 @Composable private fun TextLabel(text: String, size: Int, modifier: Modifier = Modifier, color: Color = Color.White) {
     androidx.compose.material3.Text(text, color = color, fontSize = size.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Start, modifier = modifier)
 }
+
+private const val PRIVACY_POLICY_URL = "https://boonjabby.github.io/racket-score/privacy.html"
