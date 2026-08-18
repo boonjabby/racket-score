@@ -30,6 +30,7 @@ export default function WatchLivePage() {
   const [code, setCode] = useState("");
   const [match, setMatch] = useState<LiveMatch | null>(null);
   const [status, setStatus] = useState<"enter" | "loading" | "watching" | "missing" | "error">("enter");
+  const [winnerOpen, setWinnerOpen] = useState(true);
 
   const load = useCallback(async (requestedCode: string, quiet = false) => {
     const clean = requestedCode.trim().toUpperCase();
@@ -46,6 +47,7 @@ export default function WatchLivePage() {
       const rows = await response.json() as LiveMatch[];
       if (!rows.length) { setMatch(null); setStatus("missing"); return; }
       setCode(clean); setMatch(rows[0]); setStatus("watching");
+      if (!rows[0].snapshot.winner) setWinnerOpen(true);
       const url = new URL(window.location.href);
       url.searchParams.set("code", clean);
       window.history.replaceState({}, "", url);
@@ -73,7 +75,7 @@ export default function WatchLivePage() {
         <input value={code} onChange={event => setCode(event.target.value.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 8))} placeholder="MATCH CODE" autoCapitalize="characters" autoCorrect="off" aria-label="Live match code" />
         <button disabled={status === "loading"}>{status === "loading" ? "Connecting…" : "Watch live"}</button>
       </form>
-      {status === "missing" && <strong>That match could not be found. Check the code and try again.</strong>}
+      {status === "missing" && <strong>That match has ended, expired, or the code is incorrect. Check the code and try again.</strong>}
       {status === "error" && <strong>Could not connect. Check your internet connection and try again.</strong>}
     </section>
   </main>;
@@ -93,6 +95,6 @@ export default function WatchLivePage() {
       {servingMe && <div>{snapshot.sport === "PICKLEBALL_DOUBLES" ? `SERVER ${snapshot.serverNumber} · ` : ""}{serverPosition}</div>}
     </section>
     <footer>Updates automatically · Last score {new Date(match.updated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</footer>
-    {snapshot.winner && <div className="spectator-winner"><span>🏆</span><h1>{snapshot.winner === "ME" ? "MY SIDE" : "OPPONENT"} WINS!</h1><p>{snapshot.meScore} – {snapshot.opponentScore}</p></div>}
+    {snapshot.winner && winnerOpen && <div className="spectator-winner"><span>🏆</span><h1>{snapshot.winner === "ME" ? "MY SIDE" : "OPPONENT"} WINS!</h1><p>{snapshot.meScore} – {snapshot.opponentScore}</p><button style={{ marginTop: 24, border: "1px solid #ffffff55", background: "#ffffff10", color: "white", borderRadius: 14, padding: "13px 18px", fontWeight: 900 }} onClick={() => setWinnerOpen(false)}>View final scoreboard</button></div>}
   </main>;
 }

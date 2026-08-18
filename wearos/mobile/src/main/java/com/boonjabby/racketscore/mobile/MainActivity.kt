@@ -4,7 +4,9 @@ import android.content.SharedPreferences
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -12,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -47,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -63,6 +68,8 @@ import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: PhoneMatchRepository
@@ -115,6 +122,14 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: Clou
         }
         repository.listen(listener)
         onDispose { repository.stopListening(listener) }
+    }
+
+    DisposableEffect(cloudShare) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            shareState = cloudShare.loadState()
+        }
+        cloudShare.listen(listener)
+        onDispose { cloudShare.stopListening(listener) }
     }
 
     val activity = LocalActivity.current
@@ -183,8 +198,8 @@ private fun CloudShareOverlay(
     val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color(0xDD000000)).clickable(onClick = onClose)) {
         Column(
-            Modifier.align(Alignment.Center).fillMaxWidth(.92f).clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF171717)).clickable(enabled = false) {}.padding(24.dp),
+            Modifier.align(Alignment.Center).fillMaxWidth(.92f).fillMaxHeight(.92f).clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF171717)).clickable(enabled = false) {}.verticalScroll(rememberScrollState()).padding(24.dp),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("LIVE SPECTATORS", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -197,8 +212,31 @@ private fun CloudShareOverlay(
                 Text("Ask spectators to enter this code:", color = Color.LightGray, fontSize = 13.sp)
                 Text(state.code.orEmpty(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
                 Spacer(Modifier.height(8.dp))
-                CelebrationButton("COPY VIEWER LINK") {
-                    val link = "https://boonjabby.github.io/racket-score/watch.html?code=${state.code}"
+                val link = "https://boonjabby.github.io/racket-score/watch.html?code=${state.code}"
+                QrCode(link)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    when (state.status) {
+                        CloudShareStatus.LIVE -> "● LIVE · viewers are receiving updates"
+                        CloudShareStatus.OFFLINE -> "● OFFLINE · waiting to reconnect"
+                        CloudShareStatus.CONNECTING -> "● CONNECTING"
+                        else -> "● SHARING"
+                    },
+                    color = if (state.status == CloudShareStatus.OFFLINE) Color(0xFFFFC36A) else Color(0xFF9FDDBA),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                state.lastPublishedAt?.let { Text("Last update sent ${relativeUpdateTime(it)}", color = Color.LightGray, fontSize = 10.sp) }
+                Spacer(Modifier.height(8.dp))
+                CelebrationButton("SHARE LINK") {
+                    val text = "Follow this Racket Score match live. Code: ${state.code}\n$link"
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share live score"))
+                }
+                CelebrationButton("COPY LINK") {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Racket Score live match", link))
                 }
@@ -213,6 +251,34 @@ private fun CloudShareOverlay(
                 Text(it, color = if (state.sharing) Color(0xFF9FDDBA) else Color(0xFFFFC1B8), fontSize = 12.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun QrCode(value: String) {
+    val bitmap = remember(value) {
+        val matrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 360, 360)
+        Bitmap.createBitmap(360, 360, Bitmap.Config.ARGB_8888).apply {
+            for (x in 0 until 360) for (y in 0 until 360) {
+                setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+            }
+        }.asImageBitmap()
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "QR code for the live match",
+            modifier = Modifier.size(184.dp).clip(RoundedCornerShape(12.dp)),
+        )
+    }
+}
+
+private fun relativeUpdateTime(timestamp: Long): String {
+    val seconds = ((System.currentTimeMillis() - timestamp) / 1000).coerceAtLeast(0)
+    return when {
+        seconds < 5 -> "just now"
+        seconds < 60 -> "$seconds seconds ago"
+        else -> "${seconds / 60} minutes ago"
     }
 }
 

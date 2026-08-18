@@ -14,8 +14,12 @@ data class CloudShareState(
     val code: String? = null,
     val sharing: Boolean = false,
     val busy: Boolean = false,
+    val status: CloudShareStatus = CloudShareStatus.IDLE,
+    val lastPublishedAt: Long? = null,
     val message: String? = null,
 )
+
+enum class CloudShareStatus { IDLE, CONNECTING, LIVE, OFFLINE, STOPPED, EXPIRED }
 
 class CloudShareRepository(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -27,14 +31,23 @@ class CloudShareRepository(context: Context) {
         val startedAt = preferences.getLong(STARTED_AT, 0L)
         if (code != null && System.currentTimeMillis() - startedAt >= SHARE_LIFETIME_MILLIS) {
             preferences.edit { remove(CODE); remove(STARTED_AT) }
-            return CloudShareState(message = "The previous sharing code expired")
+            return CloudShareState(status = CloudShareStatus.EXPIRED, message = "The previous sharing code expired")
         }
-        return CloudShareState(code = code, sharing = !code.isNullOrBlank())
+        val sharing = !code.isNullOrBlank()
+        val status = preferences.getString(STATUS, null)?.let { runCatching { CloudShareStatus.valueOf(it) }.getOrNull() }
+            ?: if (sharing) CloudShareStatus.LIVE else CloudShareStatus.IDLE
+        return CloudShareState(
+            code = code,
+            sharing = sharing,
+            status = status,
+            lastPublishedAt = preferences.getLong(LAST_PUBLISHED_AT, 0L).takeIf { it > 0L },
+            message = preferences.getString(MESSAGE, null),
+        )
     }
 
     fun start(snapshot: LiveMatchSnapshot, callback: (CloudShareState) -> Unit) {
         executor.execute {
-            callback(CloudShareState(busy = true))
+            callback(CloudShareState(busy = true, status = CloudShareStatus.CONNECTING))
             runCatching {
                 val session = ensureSession()
                 val code = generateCode()
@@ -50,8 +63,14 @@ class CloudShareRepository(context: Context) {
                         .put("status", if (snapshot.game.winner == null) "live" else "complete"),
                     prefer = "return=minimal",
                 )
-                preferences.edit { putString(CODE, code); putLong(STARTED_AT, System.currentTimeMillis()) }
-                CloudShareState(code = code, sharing = true, message = "Live sharing started")
+                preferences.edit {
+                    putString(CODE, code)
+                    putLong(STARTED_AT, System.currentTimeMillis())
+                    putLong(LAST_PUBLISHED_AT, System.currentTimeMillis())
+                    putString(STATUS, CloudShareStatus.LIVE.name)
+                    remove(MESSAGE)
+                }
+                loadState()
             }.onSuccess(callback).onFailure {
                 callback(CloudShareState(message = friendlyError(it)))
             }
@@ -73,6 +92,16 @@ class CloudShareRepository(context: Context) {
                         .put("status", if (snapshot.game.winner == null) "live" else "complete"),
                     prefer = "return=minimal",
                 )
+                preferences.edit {
+                    putLong(LAST_PUBLISHED_AT, System.currentTimeMillis())
+                    putString(STATUS, CloudShareStatus.LIVE.name)
+                    remove(MESSAGE)
+                }
+            }.onFailure {
+                preferences.edit {
+                    putString(STATUS, CloudShareStatus.OFFLINE.name)
+                    putString(MESSAGE, "Score saved on this phone. Live viewers will catch up after the next rally online.")
+                }
             }
         }
     }
@@ -94,8 +123,14 @@ class CloudShareRepository(context: Context) {
                     body = JSONObject().put("status", "closed"),
                     prefer = "return=minimal",
                 )
-                preferences.edit { remove(CODE); remove(STARTED_AT) }
-                CloudShareState(message = "Live sharing stopped")
+                preferences.edit {
+                    remove(CODE)
+                    remove(STARTED_AT)
+                    remove(LAST_PUBLISHED_AT)
+                    putString(STATUS, CloudShareStatus.STOPPED.name)
+                    putString(MESSAGE, "Live sharing stopped")
+                }
+                loadState()
             }.onSuccess(callback).onFailure {
                 callback(loadState().copy(message = friendlyError(it)))
             }
@@ -203,6 +238,12 @@ class CloudShareRepository(context: Context) {
         }
     }
 
+    fun listen(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+
+    fun stopListening(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        preferences.unregisterOnSharedPreferenceChangeListener(listener)
+
     private data class Session(val token: String, val userId: String, val refreshToken: String, val expiresAt: Long)
     private class CloudRequestException(status: Int, body: String) : Exception("$status: $body")
 
@@ -217,6 +258,9 @@ class CloudShareRepository(context: Context) {
         private const val USER_ID = "anonymous-user-id"
         private const val CODE = "active-public-code"
         private const val STARTED_AT = "active-share-started-at"
+        private const val LAST_PUBLISHED_AT = "last-published-at"
+        private const val STATUS = "share-status"
+        private const val MESSAGE = "share-message"
         private const val SHARE_LIFETIME_MILLIS = 8L * 60L * 60L * 1000L
     }
 }
