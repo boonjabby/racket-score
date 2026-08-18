@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -104,7 +106,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 
         if (!displayMode) {
             Row(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -118,7 +120,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
             }
         } else {
             Box(
-                Modifier.align(Alignment.TopEnd).padding(16.dp).clip(RoundedCornerShape(20.dp))
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
                     .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text("EXIT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
@@ -128,7 +130,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 @Composable
 private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
     val game = snapshot.game
-    Column(Modifier.fillMaxSize().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
         ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), game.server == Side.OPPONENT, game.sport, game.serverNumber, Modifier.weight(1f))
         Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
         ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), game.server == Side.ME, game.sport, game.serverNumber, Modifier.weight(1f))
