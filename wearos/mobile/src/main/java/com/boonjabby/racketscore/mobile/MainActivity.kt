@@ -1,6 +1,9 @@
 package com.boonjabby.racketscore.mobile
 
 import android.content.SharedPreferences
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
@@ -63,13 +66,15 @@ import com.google.android.gms.wearable.Wearable
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: PhoneMatchRepository
+    private lateinit var cloudShare: CloudShareRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = PhoneMatchRepository(this)
+        cloudShare = CloudShareRepository(this)
         refreshLatestFromDataLayer()
         setContent {
-            MaterialTheme { PhoneCompanionApp(repository) }
+            MaterialTheme { PhoneCompanionApp(repository, cloudShare) }
         }
     }
 
@@ -80,7 +85,10 @@ class MainActivity : ComponentActivity() {
                     .mapNotNull { item -> DataMapItem.fromDataItem(item).dataMap.getString(LiveScoreListenerService.SNAPSHOT_KEY) }
                     .mapNotNull(LiveMatchSnapshotCodec::decode)
                     .maxByOrNull(LiveMatchSnapshot::updatedAtMillis)
-                    ?.let(repository::save)
+                    ?.let { snapshot ->
+                        repository.save(snapshot)
+                        cloudShare.publish(snapshot)
+                    }
             }
         }
     }
@@ -89,7 +97,7 @@ class MainActivity : ComponentActivity() {
 private enum class PhoneScreen { SCORE, WATCH_LIVE, HISTORY }
 
 @Composable
-private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
+private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: CloudShareRepository) {
     var latest by remember { mutableStateOf(repository.loadLatest()) }
     var history by remember { mutableStateOf(repository.loadHistory()) }
     val context = LocalContext.current
@@ -97,6 +105,8 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     var screen by rememberSaveable { mutableStateOf(PhoneScreen.SCORE) }
     var displayMode by rememberSaveable { mutableStateOf(false) }
     var dismissedWinnerKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var shareOpen by rememberSaveable { mutableStateOf(false) }
+    var shareState by remember { mutableStateOf(cloudShare.loadState()) }
 
     DisposableEffect(repository) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -131,7 +141,10 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
                 Text("RACKET SCORE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HeaderButton("BACK TO SCORE") { screen = PhoneScreen.SCORE }
-                    if (latest != null && screen == PhoneScreen.WATCH_LIVE) HeaderButton("COURT VIEW") { displayMode = true }
+                    if (latest != null && screen == PhoneScreen.WATCH_LIVE) {
+                        HeaderButton(if (shareState.sharing) "LIVE ${shareState.code}" else "SHARE LIVE") { shareOpen = true }
+                        HeaderButton("COURT VIEW") { displayMode = true }
+                    }
                 }
             }
         } else if (displayMode && screen == PhoneScreen.WATCH_LIVE) {
@@ -139,6 +152,66 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
                 Modifier.align(Alignment.TopEnd).statusBarsPadding().navigationBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
                     .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text("EXIT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+        }
+
+        if (shareOpen) CloudShareOverlay(
+            state = shareState,
+            hasMatch = latest != null,
+            onClose = { shareOpen = false },
+            onStart = {
+                latest?.let { snapshot ->
+                    cloudShare.start(snapshot) { next ->
+                        activity?.runOnUiThread { shareState = next }
+                    }
+                }
+            },
+            onStop = {
+                cloudShare.stop { next -> activity?.runOnUiThread { shareState = next } }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CloudShareOverlay(
+    state: CloudShareState,
+    hasMatch: Boolean,
+    onClose: () -> Unit,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val context = LocalContext.current
+    Box(Modifier.fillMaxSize().background(Color(0xDD000000)).clickable(onClick = onClose)) {
+        Column(
+            Modifier.align(Alignment.Center).fillMaxWidth(.92f).clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF171717)).clickable(enabled = false) {}.padding(24.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("LIVE SPECTATORS", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                HeaderButton("CLOSE", onClose)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(if (state.sharing) "Match is live" else "Share this match", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(8.dp))
+            if (state.sharing) {
+                Text("Ask spectators to enter this code:", color = Color.LightGray, fontSize = 13.sp)
+                Text(state.code.orEmpty(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+                Spacer(Modifier.height(8.dp))
+                CelebrationButton("COPY VIEWER LINK") {
+                    val link = "https://boonjabby.github.io/racket-score/watch.html?code=${state.code}"
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Racket Score live match", link))
+                }
+                CelebrationButton("STOP SHARING", onStop)
+            } else {
+                Text("Create a private eight-character code. Anyone with the code can follow the score, but cannot change it.", color = Color.LightGray, fontSize = 13.sp)
+                Spacer(Modifier.height(14.dp))
+                CelebrationButton(if (state.busy) "CONNECTING…" else "START SHARING") { if (hasMatch && !state.busy) onStart() }
+            }
+            state.message?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = if (state.sharing) Color(0xFF9FDDBA) else Color(0xFFFFC1B8), fontSize = 12.sp)
+            }
         }
     }
 }
