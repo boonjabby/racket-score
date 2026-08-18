@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "RacketScoreWear"
-include(":app", ":engine")
+include(":app", ":engine", ":mobile")
