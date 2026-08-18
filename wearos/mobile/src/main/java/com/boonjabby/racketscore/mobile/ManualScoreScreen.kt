@@ -100,15 +100,15 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 
             if (preferences.umpireMode || landscape) {
                 Row(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, horizontalLayout = true, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, game, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
                     NetBar(vertical = true, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, horizontalLayout = true, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, game, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, horizontalLayout = false, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, game, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
                     NetBar(vertical = false, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, horizontalLayout = false, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, game, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
                 }
             }
         }
@@ -135,22 +135,26 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 }
 
 @Composable
-private fun ManualSide(side: Side, game: GameState, horizontalLayout: Boolean, modifier: Modifier, onRally: (Side) -> Unit) {
+private fun ManualSide(side: Side, game: GameState, horizontalLayout: Boolean, umpireMode: Boolean, modifier: Modifier, onRally: (Side) -> Unit) {
     val serving = game.server == side
     val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
     Box(sizedModifier.background(if (serving) Color(0xFF143128) else Color.Black).clickable { onRally(side) }) {
         TextLabel(if (side == Side.ME) "MY SIDE" else "OPPONENT", 12, Modifier.align(Alignment.TopStart).padding(20.dp), Color.LightGray)
         androidx.compose.material3.Text(PickleballEngine.displayScore(game, side), color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) TextLabel(
-            serverPositionLabel(game, side),
+            serverPositionLabel(game, side, umpireMode),
             11,
-            Modifier.align(serverPositionAlignment(game)).padding(18.dp),
+            Modifier.align(if (umpireMode) Alignment.BottomCenter else serverPositionAlignment(game)).padding(18.dp),
         )
     }
 }
 
-private fun serverPositionLabel(game: GameState, side: Side): String {
+private fun serverPositionLabel(game: GameState, side: Side, umpireMode: Boolean): String {
     val server = if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVER ${game.serverNumber}" else "SERVING"
+    if (umpireMode) {
+        val position = if (PickleballEngine.scorerCourt(game) == CourtSide.RIGHT) "NEAR" else "FAR"
+        return "$server · $position"
+    }
     val court = PickleballEngine.scorerCourt(game).name
     return if (side == Side.OPPONENT) "$server · BACK $court" else "$server · $court"
 }
@@ -175,7 +179,7 @@ private fun NetBar(vertical: Boolean, canUndo: Boolean, onUndo: () -> Unit, onNe
 @Composable
 private fun MenuOverlay(onClose: () -> Unit, onNew: () -> Unit, onWatch: () -> Unit, onHistory: () -> Unit, onSettings: () -> Unit) {
     OverlayCard("RACKET SCORE", "Game menu", onClose) {
-        MenuRow("New game", "Choose sport and first server", onNew)
+        MenuRow("New game", "Keep current sport and choose first server", onNew)
         MenuRow("Watch Live", "Follow scoring from your paired watch", onWatch)
         MenuRow("Match history", "Phone and watch results", onHistory)
         MenuRow("Settings", "Audio, vibration, screen and umpire mode", onSettings)

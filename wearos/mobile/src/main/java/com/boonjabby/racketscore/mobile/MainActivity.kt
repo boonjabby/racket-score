@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -93,8 +94,8 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     var history by remember { mutableStateOf(repository.loadHistory()) }
     val context = LocalContext.current
     val manualRepository = remember { ManualGameRepository(context) }
-    var screen by remember { mutableStateOf(PhoneScreen.SCORE) }
-    var displayMode by remember { mutableStateOf(false) }
+    var screen by rememberSaveable { mutableStateOf(PhoneScreen.SCORE) }
+    var displayMode by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(repository) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -122,7 +123,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 
         if (!displayMode && screen != PhoneScreen.SCORE) {
             Row(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -134,7 +135,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
             }
         } else if (displayMode && screen == PhoneScreen.WATCH_LIVE) {
             Box(
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().navigationBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
                     .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text("EXIT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
