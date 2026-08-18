@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -78,13 +79,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class PhoneScreen { LIVE, HISTORY }
+private enum class PhoneScreen { SCORE, WATCH_LIVE, HISTORY }
 
 @Composable
 private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     var latest by remember { mutableStateOf(repository.loadLatest()) }
     var history by remember { mutableStateOf(repository.loadHistory()) }
-    var screen by remember { mutableStateOf(PhoneScreen.LIVE) }
+    val context = LocalContext.current
+    val manualRepository = remember { ManualGameRepository(context) }
+    var screen by remember { mutableStateOf(PhoneScreen.SCORE) }
     var displayMode by remember { mutableStateOf(false) }
 
     DisposableEffect(repository) {
@@ -104,13 +107,14 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         when {
-            displayMode && latest != null -> LiveBoard(latest!!, courtDisplay = true)
-            screen == PhoneScreen.HISTORY -> HistoryScreen(history)
+            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(latest!!, courtDisplay = true)
+            screen == PhoneScreen.SCORE -> ManualScoreScreen(onWatchLive = { screen = PhoneScreen.WATCH_LIVE }, onHistory = { screen = PhoneScreen.HISTORY })
+            screen == PhoneScreen.HISTORY -> HistoryScreen(manualRepository.loadHistory(), history)
             latest != null -> LiveBoard(latest!!, courtDisplay = false)
             else -> WaitingScreen()
         }
 
-        if (!displayMode) {
+        if (!displayMode && screen != PhoneScreen.SCORE) {
             Row(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -118,13 +122,11 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
             ) {
                 Text("RACKET SCORE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeaderButton(if (screen == PhoneScreen.HISTORY) "LIVE" else "HISTORY") {
-                        screen = if (screen == PhoneScreen.HISTORY) PhoneScreen.LIVE else PhoneScreen.HISTORY
-                    }
-                    if (latest != null && screen == PhoneScreen.LIVE) HeaderButton("COURT VIEW") { displayMode = true }
+                    HeaderButton("BACK TO SCORE") { screen = PhoneScreen.SCORE }
+                    if (latest != null && screen == PhoneScreen.WATCH_LIVE) HeaderButton("COURT VIEW") { displayMode = true }
                 }
             }
-        } else {
+        } else if (displayMode && screen == PhoneScreen.WATCH_LIVE) {
             Box(
                 Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
                     .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -147,7 +149,7 @@ private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
 }
 
 @Composable
-private fun WinnerCelebration(winner: Side) {
+fun WinnerCelebration(winner: Side) {
     val transition = rememberInfiniteTransition(label = "confetti")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -208,7 +210,8 @@ private fun WaitingScreen() {
 }
 
 @Composable
-private fun HistoryScreen(history: List<LiveMatchSnapshot>) {
+private fun HistoryScreen(phoneHistory: List<LiveMatchSnapshot>, watchHistory: List<LiveMatchSnapshot>) {
+    val history = (phoneHistory + watchHistory).sortedByDescending { it.updatedAtMillis }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 72.dp, bottom = 30.dp)) {
         Text("MATCH HISTORY", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
