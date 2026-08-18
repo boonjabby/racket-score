@@ -96,6 +96,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     val manualRepository = remember { ManualGameRepository(context) }
     var screen by rememberSaveable { mutableStateOf(PhoneScreen.SCORE) }
     var displayMode by rememberSaveable { mutableStateOf(false) }
+    var dismissedWinnerKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     DisposableEffect(repository) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -114,10 +115,10 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         when {
-            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(latest!!, courtDisplay = true)
+            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(latest!!, courtDisplay = true, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
             screen == PhoneScreen.SCORE -> ManualScoreScreen(onWatchLive = { screen = PhoneScreen.WATCH_LIVE }, onHistory = { screen = PhoneScreen.HISTORY })
             screen == PhoneScreen.HISTORY -> HistoryScreen(manualRepository.loadHistory(), history)
-            latest != null -> LiveBoard(latest!!, courtDisplay = false)
+            latest != null -> LiveBoard(latest!!, courtDisplay = false, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
             else -> WaitingScreen()
         }
 
@@ -143,7 +144,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 }
 
 @Composable
-private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
+private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean, dismissedWinnerKey: String?, onDismissWinner: () -> Unit) {
     val game = snapshot.game
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize()) {
@@ -161,12 +162,18 @@ private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
                 ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = false, Modifier.weight(1f))
             }
         }
-        game.winner?.let { WinnerCelebration(it) }
+        val winnerKey = "${snapshot.matchId}:${snapshot.sequence}"
+        if (dismissedWinnerKey != winnerKey) game.winner?.let { WinnerCelebration(it, onClose = onDismissWinner) }
     }
 }
 
 @Composable
-fun WinnerCelebration(winner: Side) {
+fun WinnerCelebration(
+    winner: Side,
+    onClose: () -> Unit,
+    onRematch: (() -> Unit)? = null,
+    onNewSetup: (() -> Unit)? = null,
+) {
     val transition = rememberInfiniteTransition(label = "confetti")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -196,8 +203,20 @@ fun WinnerCelebration(winner: Side) {
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
             )
+            Spacer(Modifier.height(18.dp))
+            onRematch?.let { CelebrationButton("REMATCH", it) }
+            onNewSetup?.let { CelebrationButton("NEW SETUP", it) }
+            CelebrationButton("CLOSE", onClose)
         }
     }
+}
+
+@Composable
+private fun CelebrationButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(18.dp)).background(Color.White)
+            .clickable(onClick = onClick).padding(horizontal = 28.dp, vertical = 10.dp),
+    ) { Text(label, color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black) }
 }
 
 @Composable

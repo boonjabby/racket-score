@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +59,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
     var setupOpen by remember { mutableStateOf(false) }
     var firstServer by remember { mutableStateOf(Side.ME) }
     var firstNumber by remember { mutableStateOf(2) }
+    var winnerDismissed by rememberSaveable { mutableStateOf(false) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     DisposableEffect(feedback) { onDispose(feedback::close) }
@@ -71,6 +73,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
     fun save(next: GameState, history: List<GameState>) {
         game = next
         undo = history
+        if (next.winner == null) winnerDismissed = false
         repository.save(next, history)
     }
 
@@ -122,15 +125,25 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
         )
         if (sportOpen) SportOverlay(game.sport, onClose = { sportOpen = false }) { sport ->
             val next = PickleballEngine.newGame(firstServer, firstNumber, sport)
-            repository.start(next); game = next; undo = emptyList(); sportOpen = false
+            repository.start(next); game = next; undo = emptyList(); winnerDismissed = false; sportOpen = false
         }
         if (settingsOpen) SettingsOverlay(preferences, onChange = { preferences = it; repository.savePreferences(it) }, onClose = { settingsOpen = false })
         if (setupOpen) SetupOverlay(game.sport, firstServer, firstNumber, onServer = { firstServer = it }, onNumber = { firstNumber = it }, onClose = { setupOpen = false }) {
             val next = PickleballEngine.newGame(firstServer, firstNumber, game.sport)
-            repository.start(next); game = next; undo = emptyList(); setupOpen = false
+            repository.start(next); game = next; undo = emptyList(); winnerDismissed = false; setupOpen = false
             if (preferences.speech) feedback.announce(PickleballEngine.announcement(next))
         }
-        game.winner?.let { WinnerCelebration(it) }
+        if (!winnerDismissed) game.winner?.let { winner ->
+            WinnerCelebration(
+                winner = winner,
+                onClose = { winnerDismissed = true },
+                onRematch = {
+                    val next = PickleballEngine.newGame(firstServer, firstNumber, game.sport)
+                    repository.start(next); game = next; undo = emptyList(); winnerDismissed = false
+                },
+                onNewSetup = { winnerDismissed = true; setupOpen = true },
+            )
+        }
     }
 }
 
@@ -200,10 +213,36 @@ private fun SettingsOverlay(value: ManualPreferences, onChange: (ManualPreferenc
 private fun SetupOverlay(sport: Sport, server: Side, number: Int, onServer: (Side) -> Unit, onNumber: (Int) -> Unit, onClose: () -> Unit, onStart: () -> Unit) {
     OverlayCard("NEW GAME", "Set up the match", onClose) {
         TextLabel("${sport.label.uppercase()} · change from the sport box", 11, Modifier.padding(vertical = 10.dp), Color.LightGray)
-        ToggleRow("My side serves first", server == Side.ME) { onServer(if (server == Side.ME) Side.OPPONENT else Side.ME) }
-        if (sport == Sport.PICKLEBALL_DOUBLES) ToggleRow("Opening server 2", number == 2) { onNumber(if (number == 2) 1 else 2) }
+        TextLabel("FIRST SERVE", 10, Modifier.padding(top = 8.dp, bottom = 3.dp), Color.LightGray)
+        SelectionRow("My side", server == Side.ME) { onServer(Side.ME) }
+        SelectionRow("Opponent", server == Side.OPPONENT) { onServer(Side.OPPONENT) }
+        if (sport == Sport.PICKLEBALL_DOUBLES) {
+            TextLabel("STARTING SERVER", 10, Modifier.padding(top = 12.dp, bottom = 5.dp), Color.LightGray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SelectionChip("Server 1", number == 1) { onNumber(1) }
+                SelectionChip("Server 2", number == 2) { onNumber(2) }
+            }
+        }
         MenuRow("Start game", "Begin with these settings", onStart)
     }
+}
+
+@Composable private fun SelectionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (selected) Color.White else Color(0xFF282828)).clickable(onClick = onClick).padding(15.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        TextLabel(label, 14, color = if (selected) Color.Black else Color.White)
+        if (selected) TextLabel("✓", 14, color = Color.Black)
+    }
+}
+
+@Composable private fun SelectionChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(16.dp)).background(if (selected) Color.White else Color(0xFF282828))
+            .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 11.dp),
+    ) { TextLabel(label, 12, color = if (selected) Color.Black else Color.White) }
 }
 
 @Composable
