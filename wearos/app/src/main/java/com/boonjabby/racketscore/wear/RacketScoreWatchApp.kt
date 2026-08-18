@@ -68,6 +68,7 @@ fun RacketScoreWatchApp() {
     val context = LocalContext.current
     val repository = remember { GameRepository(context) }
     val feedback = remember { WatchFeedback(context) }
+    val scoreSync = remember { WatchScoreSync(context) }
     var game by remember { mutableStateOf(repository.loadGame()) }
     var undoStack by remember { mutableStateOf(repository.loadUndoStack()) }
     var openingServer by remember { mutableStateOf(repository.loadOpeningServer()) }
@@ -81,6 +82,10 @@ fun RacketScoreWatchApp() {
     var screen by remember { mutableStateOf(WatchScreen.SCORE) }
 
     DisposableEffect(feedback) { onDispose(feedback::close) }
+    DisposableEffect(scoreSync) {
+        scoreSync.publish(repository.currentSnapshot(game))
+        onDispose { }
+    }
     DisposableEffect(keepScreenAwake) {
         val window = (context as? Activity)?.window
         if (keepScreenAwake) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -98,7 +103,7 @@ fun RacketScoreWatchApp() {
     fun save(next: GameState, history: List<GameState>) {
         game = next
         undoStack = history
-        repository.save(next, history)
+        scoreSync.publish(repository.save(next, history))
     }
 
     fun recordRally(winner: Side) {
@@ -112,6 +117,7 @@ fun RacketScoreWatchApp() {
 
     fun startGame(sport: Sport, server: Side, serverNumber: Int) {
         val next = PickleballEngine.newGame(server, serverNumber, sport)
+        repository.beginSession()
         openingSport = sport
         openingServer = server
         openingServerNumber = serverNumber

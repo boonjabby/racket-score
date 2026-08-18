@@ -65,9 +65,9 @@ public/
 
 The scoring engine has no browser or React dependencies. That boundary is intentional: its state transitions can be ported to Kotlin for a Samsung Wear OS app, while the screen and speech/vibration adapters are replaced with Compose and Wear OS equivalents.
 
-## Native Wear OS prototype
+## Native Android and Wear OS apps
 
-The first standalone Samsung Galaxy Watch build now lives in [`wearos/`](wearos/README.md). It uses Kotlin and Jetpack Compose for Wear OS, with its own independently tested pickleball scoring engine. The existing PWA remains the released phone app.
+The native Android project lives in [`wearos/`](wearos/README.md). It contains the independently tested standalone watch scorer and an early Android phone companion for live scoring, Court Display Mode, and watch match history. The existing PWA remains the released browser app and will later provide spectator and organiser views.
 
 ## Install on Android
 
