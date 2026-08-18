@@ -1,6 +1,7 @@
 package com.boonjabby.racketscore.mobile
 
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,12 +45,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boonjabby.racketscore.engine.LiveMatchSnapshot
 import com.boonjabby.racketscore.engine.LiveMatchSnapshotCodec
+import com.boonjabby.racketscore.engine.GameState
+import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
@@ -138,11 +144,21 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 @Composable
 private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
     val game = snapshot.game
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
-            ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), game.server == Side.OPPONENT, game.sport, game.serverNumber, Modifier.weight(1f))
-            Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
-            ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), game.server == Side.ME, game.sport, game.serverNumber, Modifier.weight(1f))
+        val boardModifier = Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)
+        if (landscape) {
+            Row(boardModifier) {
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, Modifier.weight(1f))
+                Box(Modifier.fillMaxHeight().width(8.dp).background(Color.White))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, Modifier.weight(1f))
+            }
+        } else {
+            Column(boardModifier) {
+                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, Modifier.weight(1f))
+                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
+                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, Modifier.weight(1f))
+            }
         }
         game.winner?.let { WinnerCelebration(it) }
     }
@@ -184,17 +200,23 @@ fun WinnerCelebration(winner: Side) {
 }
 
 @Composable
-private fun ScorePanel(label: String, score: String, serving: Boolean, sport: Sport, serverNumber: Int, modifier: Modifier) {
+private fun ScorePanel(label: String, score: String, side: Side, game: GameState, modifier: Modifier) {
+    val serving = game.server == side
     Box(modifier.fillMaxWidth().background(if (serving) Color(0xFF162C26) else Color.Black)) {
         Text(label, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(22.dp))
         Text(score, color = Color.White, fontSize = 104.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) {
             Text(
-                if (sport == Sport.PICKLEBALL_DOUBLES) "SERVING · SERVER $serverNumber" else "SERVING",
+                buildString {
+                    append(if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVER ${game.serverNumber}" else "SERVING")
+                    append(" · ")
+                    if (side == Side.OPPONENT) append("BACK ")
+                    append(PickleballEngine.scorerCourt(game).name)
+                },
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(22.dp),
+                modifier = Modifier.align(if (PickleballEngine.scorerCourt(game) == CourtSide.LEFT) Alignment.BottomStart else Alignment.BottomEnd).padding(22.dp),
             )
         }
     }

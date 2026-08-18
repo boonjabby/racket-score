@@ -1,6 +1,7 @@
 package com.boonjabby.racketscore.mobile
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,11 +33,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boonjabby.racketscore.engine.GameState
+import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
@@ -55,6 +58,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
     var setupSport by remember { mutableStateOf(game.sport) }
     var firstServer by remember { mutableStateOf(Side.ME) }
     var firstNumber by remember { mutableStateOf(2) }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     DisposableEffect(feedback) { onDispose(feedback::close) }
     DisposableEffect(preferences.keepAwake) {
@@ -94,7 +98,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
                 }
             }
 
-            if (preferences.umpireMode) {
+            if (preferences.umpireMode || landscape) {
                 Row(Modifier.fillMaxSize()) {
                     ManualSide(Side.OPPONENT, game, Modifier.weight(1f), ::rally)
                     NetBar(vertical = true, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
@@ -133,12 +137,21 @@ private fun ManualSide(side: Side, game: GameState, modifier: Modifier, onRally:
         TextLabel(if (side == Side.ME) "MY SIDE" else "OPPONENT", 12, Modifier.align(Alignment.TopStart).padding(20.dp), Color.LightGray)
         androidx.compose.material3.Text(PickleballEngine.displayScore(game, side), color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) TextLabel(
-            if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVING · SERVER ${game.serverNumber}" else "SERVING",
-            12,
-            Modifier.align(Alignment.BottomCenter).padding(18.dp),
+            serverPositionLabel(game, side),
+            11,
+            Modifier.align(serverPositionAlignment(game)).padding(18.dp),
         )
     }
 }
+
+private fun serverPositionLabel(game: GameState, side: Side): String {
+    val server = if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVER ${game.serverNumber}" else "SERVING"
+    val court = PickleballEngine.scorerCourt(game).name
+    return if (side == Side.OPPONENT) "$server · BACK $court" else "$server · $court"
+}
+
+private fun serverPositionAlignment(game: GameState): Alignment =
+    if (PickleballEngine.scorerCourt(game) == CourtSide.LEFT) Alignment.BottomStart else Alignment.BottomEnd
 
 @Composable
 private fun NetBar(vertical: Boolean, canUndo: Boolean, onUndo: () -> Unit, onNew: () -> Unit) {
