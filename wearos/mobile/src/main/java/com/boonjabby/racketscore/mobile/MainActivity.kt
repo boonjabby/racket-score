@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,10 +31,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -90,10 +97,9 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
     }
 
     val activity = LocalActivity.current
-    DisposableEffect(displayMode) {
-        if (displayMode) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose { }
+    DisposableEffect(activity) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
@@ -115,7 +121,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
                     HeaderButton(if (screen == PhoneScreen.HISTORY) "LIVE" else "HISTORY") {
                         screen = if (screen == PhoneScreen.HISTORY) PhoneScreen.LIVE else PhoneScreen.HISTORY
                     }
-                    if (latest != null && screen == PhoneScreen.LIVE) HeaderButton("DISPLAY") { displayMode = true }
+                    if (latest != null && screen == PhoneScreen.LIVE) HeaderButton("COURT VIEW") { displayMode = true }
                 }
             }
         } else {
@@ -130,10 +136,48 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository) {
 @Composable
 private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean) {
     val game = snapshot.game
-    Column(Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
-        ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), game.server == Side.OPPONENT, game.sport, game.serverNumber, Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
-        ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), game.server == Side.ME, game.sport, game.serverNumber, Modifier.weight(1f))
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)) {
+            ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), game.server == Side.OPPONENT, game.sport, game.serverNumber, Modifier.weight(1f))
+            Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
+            ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), game.server == Side.ME, game.sport, game.serverNumber, Modifier.weight(1f))
+        }
+        game.winner?.let { WinnerCelebration(it) }
+    }
+}
+
+@Composable
+private fun WinnerCelebration(winner: Side) {
+    val transition = rememberInfiniteTransition(label = "confetti")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing)),
+        label = "confetti-fall",
+    )
+    val colors = listOf(Color(0xFFFFD54F), Color(0xFF4DD0E1), Color(0xFFFF6E6E), Color.White)
+
+    Box(Modifier.fillMaxSize().background(Color(0xB8000000))) {
+        Canvas(Modifier.fillMaxSize()) {
+            repeat(42) { index ->
+                val x = ((index * 83) % 101) / 101f * size.width
+                val offset = (progress + (index % 11) / 11f) % 1f
+                val y = offset * (size.height + 80f) - 40f
+                rotate((progress * 360f) + index * 31f, pivot = androidx.compose.ui.geometry.Offset(x, y)) {
+                    drawRect(colors[index % colors.size], topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(12f, 24f))
+                }
+            }
+        }
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("🏆", fontSize = 82.sp)
+            Text(
+                if (winner == Side.ME) "MY SIDE WINS!" else "OPPONENT WINS!",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
