@@ -3,9 +3,11 @@ package com.boonjabby.racketscore.wear
 import android.content.Context
 import com.boonjabby.racketscore.engine.CourtSide
 import com.boonjabby.racketscore.engine.GameState
+import com.boonjabby.racketscore.engine.LiveMatchSnapshot
 import com.boonjabby.racketscore.engine.PickleballEngine
 import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
+import java.util.UUID
 
 class GameRepository(context: Context) {
     private val preferences = context.getSharedPreferences("racket-score-watch", Context.MODE_PRIVATE)
@@ -49,11 +51,36 @@ class GameRepository(context: Context) {
             .apply()
     }
 
-    fun save(game: GameState, undoStack: List<GameState>) {
+    fun beginSession() {
+        preferences.edit()
+            .putString("live-match-id", UUID.randomUUID().toString())
+            .putLong("live-sequence", 0)
+            .apply()
+    }
+
+    fun save(game: GameState, undoStack: List<GameState>): LiveMatchSnapshot {
+        val nextSequence = preferences.getLong("live-sequence", 0) + 1
+        val matchId = currentMatchId()
         preferences.edit()
             .putString("game", encode(game))
             .putString("undo", undoStack.takeLast(30).joinToString("|") { encode(it) })
+            .putLong("live-sequence", nextSequence)
             .apply()
+        return LiveMatchSnapshot(matchId, nextSequence, System.currentTimeMillis(), game)
+    }
+
+    fun currentSnapshot(game: GameState) = LiveMatchSnapshot(
+        matchId = currentMatchId(),
+        sequence = preferences.getLong("live-sequence", 0),
+        updatedAtMillis = System.currentTimeMillis(),
+        game = game,
+    )
+
+    private fun currentMatchId(): String {
+        preferences.getString("live-match-id", null)?.let { return it }
+        val generated = UUID.randomUUID().toString()
+        preferences.edit().putString("live-match-id", generated).apply()
+        return generated
     }
 
     private fun encode(state: GameState) = listOf(
