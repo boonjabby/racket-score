@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
@@ -135,26 +137,35 @@ fun RoundRobinScreen() {
 private fun RobinShareOverlay(state: CloudShareState, onClose: () -> Unit, onStart: () -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
     val link = "https://boonjabby.github.io/racket-score/event.html?code=${state.code.orEmpty()}"
-    Box(Modifier.fillMaxSize().background(Color(0xEE000000)).clickable(onClick = onClose)) {
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(.92f).fillMaxHeight(.92f).clip(RoundedCornerShape(24.dp)).background(Color(0xFF171717)).clickable(enabled = false) {}.verticalScroll(rememberScrollState()).padding(22.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("ROUND ROBIN LIVE", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Black); RobinLink("CLOSE", onClose) }
-            Text(if (state.sharing) "Event is live" else "Share this event", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(8.dp))
-            if (state.sharing) {
-                Text("Players and spectators can scan this QR code.", color = Color.LightGray, fontSize = 13.sp)
-                Text(state.code.orEmpty(), color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black)
-                QrCode(link)
-                Text(if (state.status == CloudShareStatus.OFFLINE) "● OFFLINE · changes are saved" else "● LIVE · updates automatically", color = if (state.status == CloudShareStatus.OFFLINE) Color(0xFFFFC36A) else Color(0xFF9FDDBA), fontSize = 11.sp, fontWeight = FontWeight.Black)
-                RobinAction("SHARE LINK", true) {
-                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Follow our Racket Score Round Robin live: $link\nCode: ${state.code}") }, "Share event"))
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(Color(0xF5000000)).statusBarsPadding().navigationBarsPadding()) {
+            Column(Modifier.align(Alignment.Center).fillMaxWidth(.94f).fillMaxHeight(.94f).clip(RoundedCornerShape(24.dp)).background(Color(0xFF171717))) {
+                Row(Modifier.fillMaxWidth().background(Color(0xFF171717)).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("ROUND ROBIN LIVE", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Box(Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White).clickable(onClick = onClose).padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text("CLOSE ×", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    }
                 }
-                RobinAction("COPY LINK", true) { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Racket Score event", link)) }
-                RobinAction("STOP SHARING", true, onStop)
-            } else {
-                Text("Create a temporary event code. Anyone with it can view courts, scores and the waiting queue, but only this phone can make changes.", color = Color.LightGray, fontSize = 13.sp)
-                RobinAction(if (state.busy) "CONNECTING…" else "START SHARING", !state.busy, onStart)
+                Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(start = 22.dp, end = 22.dp, bottom = 22.dp)) {
+                    Text(if (state.sharing) "Event is live" else "Share this event", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(8.dp))
+                    if (state.sharing) {
+                        Text("Players and spectators can scan this QR code.", color = Color.LightGray, fontSize = 13.sp)
+                        Text(state.code.orEmpty(), color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black)
+                        QrCode(link)
+                        Text(if (state.status == CloudShareStatus.OFFLINE) "● OFFLINE · changes are saved" else "● LIVE · updates automatically", color = if (state.status == CloudShareStatus.OFFLINE) Color(0xFFFFC36A) else Color(0xFF9FDDBA), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        RobinAction("SHARE LINK", true) {
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Follow our Racket Score Round Robin live: $link\nCode: ${state.code}") }, "Share event"))
+                        }
+                        RobinAction("COPY LINK", true) { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Racket Score event", link)) }
+                        RobinAction("STOP SHARING", true, onStop)
+                    } else {
+                        Text("Create a temporary event code. Anyone with it can view courts, scores and the waiting queue, but only this phone can make changes.", color = Color.LightGray, fontSize = 13.sp)
+                        RobinAction(if (state.busy) "CONNECTING…" else "START SHARING", !state.busy, onStart)
+                    }
+                    state.message?.let { Text(it, color = Color(0xFFFFC1B8), fontSize = 12.sp) }
+                }
             }
-            state.message?.let { Text(it, color = Color(0xFFFFC1B8), fontSize = 12.sp) }
         }
     }
 }
