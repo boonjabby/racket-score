@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class PhoneScreen { SCORE, WATCH_LIVE, HISTORY }
+private enum class PhoneScreen { SCORE, WATCH_LIVE, HISTORY, ROUND_ROBIN }
 
 @Composable
 private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: CloudShareRepository) {
@@ -111,6 +111,7 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: Clou
     val manualRepository = remember { ManualGameRepository(context) }
     var screen by rememberSaveable { mutableStateOf(PhoneScreen.SCORE) }
     var displayMode by rememberSaveable { mutableStateOf(false) }
+    var liveFlipped by rememberSaveable { mutableStateOf(false) }
     var dismissedWinnerKey by rememberSaveable { mutableStateOf<String?>(null) }
     var shareOpen by rememberSaveable { mutableStateOf(false) }
     var shareState by remember { mutableStateOf(cloudShare.loadState()) }
@@ -140,10 +141,25 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: Clou
 
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         when {
-            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(latest!!, courtDisplay = true, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
-            screen == PhoneScreen.SCORE -> ManualScoreScreen(onWatchLive = { screen = PhoneScreen.WATCH_LIVE }, onHistory = { screen = PhoneScreen.HISTORY })
+            displayMode && screen == PhoneScreen.WATCH_LIVE && latest != null -> LiveBoard(
+                latest!!, courtDisplay = true, flipped = liveFlipped,
+                myLabel = manualRepository.loadPreferences().mySideName,
+                opponentLabel = manualRepository.loadPreferences().opponentName,
+                dismissedWinnerKey = dismissedWinnerKey,
+            ) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
+            screen == PhoneScreen.SCORE -> ManualScoreScreen(
+                onWatchLive = { screen = PhoneScreen.WATCH_LIVE },
+                onHistory = { screen = PhoneScreen.HISTORY },
+                onRoundRobin = { screen = PhoneScreen.ROUND_ROBIN },
+            )
             screen == PhoneScreen.HISTORY -> HistoryScreen(manualRepository.loadHistory(), history)
-            latest != null -> LiveBoard(latest!!, courtDisplay = false, dismissedWinnerKey) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
+            screen == PhoneScreen.ROUND_ROBIN -> RoundRobinScreen()
+            latest != null -> LiveBoard(
+                latest!!, courtDisplay = false, flipped = liveFlipped,
+                myLabel = manualRepository.loadPreferences().mySideName,
+                opponentLabel = manualRepository.loadPreferences().opponentName,
+                dismissedWinnerKey = dismissedWinnerKey,
+            ) { dismissedWinnerKey = "${latest!!.matchId}:${latest!!.sequence}" }
             else -> WaitingScreen()
         }
 
@@ -155,18 +171,22 @@ private fun PhoneCompanionApp(repository: PhoneMatchRepository, cloudShare: Clou
             ) {
                 Text("RACKET SCORE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeaderButton("BACK TO SCORE") { screen = PhoneScreen.SCORE }
+                    HeaderButton("SCORE") { screen = PhoneScreen.SCORE }
                     if (latest != null && screen == PhoneScreen.WATCH_LIVE) {
-                        HeaderButton(if (shareState.sharing) "LIVE ${shareState.code}" else "SHARE LIVE") { shareOpen = true }
-                        HeaderButton("COURT VIEW") { displayMode = true }
+                        HeaderButton(if (liveFlipped) "OPP VIEW" else "FLIP VIEW") { liveFlipped = !liveFlipped }
+                        HeaderButton(if (shareState.sharing) "LIVE" else "SHARE") { shareOpen = true }
+                        HeaderButton("COURT") { displayMode = true }
                     }
                 }
             }
         } else if (displayMode && screen == PhoneScreen.WATCH_LIVE) {
-            Box(
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().navigationBarsPadding().padding(16.dp).clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xAA000000)).clickable { displayMode = false }.padding(horizontal = 16.dp, vertical = 10.dp),
-            ) { Text("EXIT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+            Row(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().navigationBarsPadding().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HeaderButton(if (liveFlipped) "OPP VIEW" else "MY VIEW") { liveFlipped = !liveFlipped }
+                HeaderButton("EXIT") { displayMode = false }
+            }
         }
 
         if (shareOpen) CloudShareOverlay(
@@ -255,7 +275,7 @@ private fun CloudShareOverlay(
 }
 
 @Composable
-private fun QrCode(value: String) {
+internal fun QrCode(value: String) {
     val bitmap = remember(value) {
         val matrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 360, 360)
         Bitmap.createBitmap(360, 360, Bitmap.Config.ARGB_8888).apply {
@@ -283,33 +303,48 @@ private fun relativeUpdateTime(timestamp: Long): String {
 }
 
 @Composable
-private fun LiveBoard(snapshot: LiveMatchSnapshot, courtDisplay: Boolean, dismissedWinnerKey: String?, onDismissWinner: () -> Unit) {
+private fun LiveBoard(
+    snapshot: LiveMatchSnapshot,
+    courtDisplay: Boolean,
+    flipped: Boolean,
+    myLabel: String,
+    opponentLabel: String,
+    dismissedWinnerKey: String?,
+    onDismissWinner: () -> Unit,
+) {
     val game = snapshot.game
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize()) {
         val boardModifier = Modifier.fillMaxSize().navigationBarsPadding().padding(top = if (courtDisplay) 0.dp else 58.dp)
+        val nearSide = if (flipped) Side.OPPONENT else Side.ME
+        val farSide = if (flipped) Side.ME else Side.OPPONENT
+        fun label(side: Side) = if (side == Side.ME) myLabel else opponentLabel
         if (landscape) {
             Row(boardModifier) {
-                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = true, Modifier.weight(1f))
+                ScorePanel(label(farSide), PickleballEngine.displayScore(game, farSide), farSide, nearSide, game, flipped, horizontalLayout = true, Modifier.weight(1f))
                 Box(Modifier.fillMaxHeight().width(8.dp).background(Color.White))
-                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = true, Modifier.weight(1f))
+                ScorePanel(label(nearSide), PickleballEngine.displayScore(game, nearSide), nearSide, nearSide, game, flipped, horizontalLayout = true, Modifier.weight(1f))
             }
         } else {
             Column(boardModifier) {
-                ScorePanel("OPPONENT", PickleballEngine.displayScore(game, Side.OPPONENT), Side.OPPONENT, game, horizontalLayout = false, Modifier.weight(1f))
+                ScorePanel(label(farSide), PickleballEngine.displayScore(game, farSide), farSide, nearSide, game, flipped, horizontalLayout = false, Modifier.weight(1f))
                 Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White))
-                ScorePanel("MY SIDE", PickleballEngine.displayScore(game, Side.ME), Side.ME, game, horizontalLayout = false, Modifier.weight(1f))
+                ScorePanel(label(nearSide), PickleballEngine.displayScore(game, nearSide), nearSide, nearSide, game, flipped, horizontalLayout = false, Modifier.weight(1f))
             }
         }
         val winnerKey = "${snapshot.matchId}:${snapshot.sequence}"
-        if (dismissedWinnerKey != winnerKey) game.winner?.let { WinnerCelebration(it, onClose = onDismissWinner) }
+        if (dismissedWinnerKey != winnerKey) game.winner?.let {
+            WinnerCelebration(it, winnerLabel = label(it), onClose = onDismissWinner)
+        }
     }
 }
 
 @Composable
 fun WinnerCelebration(
     winner: Side,
+    winnerLabel: String = if (winner == Side.ME) "My side" else "Opponent",
     onClose: () -> Unit,
+    onUndo: (() -> Unit)? = null,
     onRematch: (() -> Unit)? = null,
     onNewSetup: (() -> Unit)? = null,
 ) {
@@ -336,13 +371,14 @@ fun WinnerCelebration(
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("🏆", fontSize = 82.sp)
             Text(
-                if (winner == Side.ME) "MY SIDE WINS!" else "OPPONENT WINS!",
+                "${winnerLabel.uppercase()} WINS!",
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(18.dp))
+            onUndo?.let { CelebrationButton("UNDO MATCH POINT", it) }
             onRematch?.let { CelebrationButton("REMATCH", it) }
             onNewSetup?.let { CelebrationButton("NEW SETUP", it) }
             CelebrationButton("CLOSE", onClose)
@@ -359,7 +395,7 @@ private fun CelebrationButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ScorePanel(label: String, score: String, side: Side, game: GameState, horizontalLayout: Boolean, modifier: Modifier) {
+private fun ScorePanel(label: String, score: String, side: Side, perspective: Side, game: GameState, flipped: Boolean, horizontalLayout: Boolean, modifier: Modifier) {
     val serving = game.server == side
     val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
     Box(sizedModifier.background(if (serving) Color(0xFF162C26) else Color.Black)) {
@@ -370,13 +406,19 @@ private fun ScorePanel(label: String, score: String, side: Side, game: GameState
                 buildString {
                     append(if (game.sport == Sport.PICKLEBALL_DOUBLES) "SERVER ${game.serverNumber}" else "SERVING")
                     append(" · ")
-                    if (side == Side.OPPONENT) append("BACK ")
-                    append(PickleballEngine.scorerCourt(game).name)
+                    if (side != perspective) append("BACK ")
+                    val scorerCourt = PickleballEngine.scorerCourt(game)
+                    val displayCourt = if (flipped) {
+                        if (scorerCourt == CourtSide.LEFT) CourtSide.RIGHT else CourtSide.LEFT
+                    } else scorerCourt
+                    append(displayCourt.name)
                 },
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(if (PickleballEngine.scorerCourt(game) == CourtSide.LEFT) Alignment.BottomStart else Alignment.BottomEnd).padding(22.dp),
+                modifier = Modifier.align(
+                    if ((PickleballEngine.scorerCourt(game) == CourtSide.LEFT) xor flipped) Alignment.BottomStart else Alignment.BottomEnd,
+                ).padding(22.dp),
             )
         }
     }

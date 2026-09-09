@@ -33,6 +33,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     implementation("com.google.zxing:core:3.5.4")
+    testImplementation(kotlin("test"))
+    testImplementation("junit:junit:4.13.2")
     debugImplementation(composeBom)
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

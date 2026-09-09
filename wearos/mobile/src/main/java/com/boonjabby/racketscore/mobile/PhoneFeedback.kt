@@ -13,7 +13,10 @@ class PhoneFeedback(context: Context) : TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         ready = status == TextToSpeech.SUCCESS
-        if (ready) speech.language = Locale.getDefault()
+        if (ready) {
+            speech.language = Locale.getDefault()
+            speech.setSpeechRate(1.15f)
+        }
     }
 
     fun tap() = vibrator?.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))

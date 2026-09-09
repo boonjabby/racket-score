@@ -10,6 +10,7 @@ Native Android project containing a standalone Wear OS scorer and an early paire
 - Official pickleball service sequence and scorer-perspective court positions.
 - Spoken score, vibration, undo, restart, persistent match state, and winner celebration.
 - Fully usable without a phone or internet connection.
+- Winner screen includes an undo action for accidental match-point taps.
 - Publishes a versioned, sequenced match snapshot through the secure Wear OS Data Layer when a paired Android phone is available.
 
 ### Android phone companion
@@ -19,6 +20,12 @@ Native Android project containing a standalone Wear OS scorer and an early paire
 - Full-screen Court Display Mode with screen wake lock.
 - Stores up to 50 completed watch matches locally.
 - Retracts a completed result if the winning rally is undone.
+- Flips Watch Live and Court View into the opponent's true court perspective, including service position.
+- Editable labels replace the default My Side and Opponent names.
+- Offline Round Robin organiser for four or more players, configurable courts, winner entry, fair rest rotation, random rounds, and split-and-rotate rounds.
+- Round Robin supports up to eight independently advancing courts, waiting/paused players, and amendable matchups.
+- Read-only live Round Robin sharing by temporary event code or QR code.
+- Persistent high-contrast and coloured court themes.
 
 ## Project structure
 

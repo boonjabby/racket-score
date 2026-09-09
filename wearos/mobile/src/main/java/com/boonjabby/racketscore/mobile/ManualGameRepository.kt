@@ -15,7 +15,17 @@ data class ManualPreferences(
     val vibration: Boolean = true,
     val keepAwake: Boolean = true,
     val umpireMode: Boolean = false,
+    val mySideName: String = "My Side",
+    val opponentName: String = "Opponent",
+    val courtTheme: CourtTheme = CourtTheme.HIGH_CONTRAST,
 )
+
+enum class CourtTheme(val label: String) {
+    HIGH_CONTRAST("High contrast"),
+    BLUE_RED("Blue / Red"),
+    GREEN_BLUE("Green / Blue"),
+    PURPLE_ORANGE("Purple / Orange"),
+}
 
 class ManualGameRepository(context: Context) {
     private val preferences = context.getSharedPreferences("racket-score-manual", Context.MODE_PRIVATE)
@@ -32,9 +42,13 @@ class ManualGameRepository(context: Context) {
         preferences.edit {
             putString("game", encode(game))
             putString("undo", undo.takeLast(40).joinToString("\n", transform = ::encode))
+            val existing = loadHistory().filterNot { it.matchId == currentMatchId() }
             if (game.winner != null) {
-                val existing = loadHistory().filterNot { it.matchId == currentMatchId() }
                 putString("history", (listOf(snapshot(game)) + existing).take(50).joinToString("\n", transform = LiveMatchSnapshotCodec::encode))
+            } else {
+                // An accidental match point can be undone from the winner screen.
+                // Remove the now-retracted result from match history as well.
+                putString("history", existing.take(50).joinToString("\n", transform = LiveMatchSnapshotCodec::encode))
             }
         }
     }
@@ -52,6 +66,11 @@ class ManualGameRepository(context: Context) {
         vibration = preferences.getBoolean("vibration", true),
         keepAwake = preferences.getBoolean("awake", true),
         umpireMode = preferences.getBoolean("umpire", false),
+        mySideName = preferences.getString("my-side-name", "My Side").orEmpty().ifBlank { "My Side" },
+        opponentName = preferences.getString("opponent-name", "Opponent").orEmpty().ifBlank { "Opponent" },
+        courtTheme = preferences.getString("court-theme", null)
+            ?.let { saved -> CourtTheme.values().firstOrNull { it.name == saved } }
+            ?: CourtTheme.HIGH_CONTRAST,
     )
 
     fun savePreferences(value: ManualPreferences) = preferences.edit {
@@ -59,6 +78,9 @@ class ManualGameRepository(context: Context) {
         putBoolean("vibration", value.vibration)
         putBoolean("awake", value.keepAwake)
         putBoolean("umpire", value.umpireMode)
+        putString("my-side-name", value.mySideName.trim().ifBlank { "My Side" })
+        putString("opponent-name", value.opponentName.trim().ifBlank { "Opponent" })
+        putString("court-theme", value.courtTheme.name)
     }
 
     private fun currentMatchId(): String = preferences.getString("match-id", null) ?: "manual-current"

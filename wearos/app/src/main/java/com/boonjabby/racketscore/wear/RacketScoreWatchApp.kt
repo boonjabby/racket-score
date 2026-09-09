@@ -233,7 +233,7 @@ private fun ScoreScreen(
                 onCloseSettings,
             )
         }
-        game.winner?.let { WinnerOverlay(it, game, onRematch, onNewGame) }
+        game.winner?.let { WinnerOverlay(it, game, onUndo, onRematch, onNewGame) }
     }
 }
 
@@ -448,7 +448,7 @@ private fun ActionButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun WinnerOverlay(winner: Side, game: GameState, onRematch: () -> Unit, onNewGame: () -> Unit) {
+private fun WinnerOverlay(winner: Side, game: GameState, onUndo: () -> Unit, onRematch: () -> Unit, onNewGame: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         Confetti()
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -456,6 +456,8 @@ private fun WinnerOverlay(winner: Side, game: GameState, onRematch: () -> Unit, 
             Text("${winnerName(winner)} WINS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
             Text("${game.meScore} – ${game.opponentScore}", color = Color.LightGray, fontSize = 15.sp)
             Spacer(Modifier.height(8.dp))
+            ActionButton("UNDO POINT", onUndo)
+            Spacer(Modifier.height(4.dp))
             ActionButton("REMATCH", onRematch)
             Text("New setup", color = Color.LightGray, fontSize = 9.sp, modifier = Modifier.padding(7.dp).clickable(onClick = onNewGame))
         }

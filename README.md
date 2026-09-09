@@ -22,6 +22,7 @@ A touch-first Progressive Web App for scoring pickleball and other racquet sport
 - Safe in-app notification when an offline update is ready
 - Installable manifest and offline service worker
 - Optional live sharing with expiring spectator codes and automatic cloud cleanup
+- Public read-only Round Robin event board at `event.html`, joined by temporary code or QR link
 - Public privacy policy at `privacy.html`
 
 ## Run locally

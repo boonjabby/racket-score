@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +49,7 @@ import com.boonjabby.racketscore.engine.Side
 import com.boonjabby.racketscore.engine.Sport
 
 @Composable
-fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
+fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit, onRoundRobin: () -> Unit) {
     val context = LocalContext.current
     val repository = remember { ManualGameRepository(context) }
     val feedback = remember { PhoneFeedback(context) }
@@ -84,7 +85,9 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
         val next = PickleballEngine.rally(game, winner)
         save(next, undo + game)
         if (preferences.vibration) feedback.tap()
-        if (preferences.speech) feedback.announce(next.winner?.let { if (it == Side.ME) "My side wins." else "Opponent wins." } ?: PickleballEngine.announcement(next))
+        if (preferences.speech) feedback.announce(next.winner?.let {
+            (if (it == Side.ME) preferences.mySideName else preferences.opponentName) + " wins."
+        } ?: PickleballEngine.announcement(next))
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black).navigationBarsPadding()) {
@@ -105,15 +108,15 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 
             if (preferences.umpireMode || landscape) {
                 Row(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, preferences.opponentName, game, preferences.courtTheme, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
                     NetBar(vertical = true, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, preferences.mySideName, game, preferences.courtTheme, horizontalLayout = true, umpireMode = preferences.umpireMode, Modifier.weight(1f), ::rally)
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    ManualSide(Side.OPPONENT, game, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.OPPONENT, preferences.opponentName, game, preferences.courtTheme, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
                     NetBar(vertical = false, canUndo = undo.isNotEmpty(), onUndo = { undo.lastOrNull()?.let { save(it, undo.dropLast(1)) } }, onNew = { setupOpen = true })
-                    ManualSide(Side.ME, game, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
+                    ManualSide(Side.ME, preferences.mySideName, game, preferences.courtTheme, horizontalLayout = false, umpireMode = false, Modifier.weight(1f), ::rally)
                 }
             }
         }
@@ -123,6 +126,7 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
             onNew = { menuOpen = false; setupOpen = true },
             onWatch = { menuOpen = false; onWatchLive() },
             onHistory = { menuOpen = false; onHistory() },
+            onRoundRobin = { menuOpen = false; onRoundRobin() },
             onSettings = { menuOpen = false; settingsOpen = true },
         )
         if (sportOpen) SportOverlay(game.sport, onClose = { sportOpen = false }) { sport ->
@@ -138,7 +142,11 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
         if (!winnerDismissed) game.winner?.let { winner ->
             WinnerCelebration(
                 winner = winner,
+                winnerLabel = if (winner == Side.ME) preferences.mySideName else preferences.opponentName,
                 onClose = { winnerDismissed = true },
+                onUndo = undo.lastOrNull()?.let { previous ->
+                    { save(previous, undo.dropLast(1)) }
+                },
                 onRematch = {
                     val next = PickleballEngine.newGame(firstServer, firstNumber, game.sport)
                     repository.start(next); game = next; undo = emptyList(); winnerDismissed = false
@@ -150,17 +158,36 @@ fun ManualScoreScreen(onWatchLive: () -> Unit, onHistory: () -> Unit) {
 }
 
 @Composable
-private fun ManualSide(side: Side, game: GameState, horizontalLayout: Boolean, umpireMode: Boolean, modifier: Modifier, onRally: (Side) -> Unit) {
+private fun ManualSide(side: Side, label: String, game: GameState, theme: CourtTheme, horizontalLayout: Boolean, umpireMode: Boolean, modifier: Modifier, onRally: (Side) -> Unit) {
     val serving = game.server == side
     val sizedModifier = if (horizontalLayout) modifier.fillMaxHeight() else modifier.fillMaxWidth()
-    Box(sizedModifier.background(if (serving) Color(0xFF143128) else Color.Black).clickable { onRally(side) }) {
-        TextLabel(if (side == Side.ME) "MY SIDE" else "OPPONENT", 12, Modifier.align(Alignment.TopStart).padding(20.dp), Color.LightGray)
+    Box(sizedModifier.background(courtColor(theme, side, serving)).clickable { onRally(side) }) {
+        TextLabel(label.uppercase(), 12, Modifier.align(Alignment.TopStart).padding(20.dp), Color.LightGray)
         androidx.compose.material3.Text(PickleballEngine.displayScore(game, side), color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
         if (serving) TextLabel(
             serverPositionLabel(game, side, umpireMode),
             11,
             Modifier.align(if (umpireMode) Alignment.BottomCenter else serverPositionAlignment(game)).padding(18.dp),
         )
+    }
+}
+
+private fun courtColor(theme: CourtTheme, side: Side, serving: Boolean): Color = when (theme) {
+    CourtTheme.HIGH_CONTRAST -> if (serving) Color(0xFF143128) else Color.Black
+    CourtTheme.BLUE_RED -> if (side == Side.ME) {
+        if (serving) Color(0xFF1565C0) else Color(0xFF0D3B66)
+    } else {
+        if (serving) Color(0xFFD84343) else Color(0xFF7A2020)
+    }
+    CourtTheme.GREEN_BLUE -> if (side == Side.ME) {
+        if (serving) Color(0xFF2E7D32) else Color(0xFF174A2A)
+    } else {
+        if (serving) Color(0xFF1976D2) else Color(0xFF123F6B)
+    }
+    CourtTheme.PURPLE_ORANGE -> if (side == Side.ME) {
+        if (serving) Color(0xFF7B3FB2) else Color(0xFF452060)
+    } else {
+        if (serving) Color(0xFFE06B18) else Color(0xFF8A3D0C)
     }
 }
 
@@ -192,11 +219,12 @@ private fun NetBar(vertical: Boolean, canUndo: Boolean, onUndo: () -> Unit, onNe
 }
 
 @Composable
-private fun MenuOverlay(onClose: () -> Unit, onNew: () -> Unit, onWatch: () -> Unit, onHistory: () -> Unit, onSettings: () -> Unit) {
+private fun MenuOverlay(onClose: () -> Unit, onNew: () -> Unit, onWatch: () -> Unit, onHistory: () -> Unit, onRoundRobin: () -> Unit, onSettings: () -> Unit) {
     OverlayCard("RACKET SCORE", "Game menu", onClose) {
         MenuRow("New game", "Keep current sport and choose first server", onNew)
         MenuRow("Watch Live", "Follow scoring from your paired watch", onWatch)
         MenuRow("Match history", "Phone and watch results", onHistory)
+        MenuRow("Round Robin", "Allocate players, courts and the next round", onRoundRobin)
         MenuRow("Settings", "Audio, vibration, screen and umpire mode", onSettings)
     }
 }
@@ -209,10 +237,45 @@ private fun SettingsOverlay(value: ManualPreferences, onChange: (ManualPreferenc
         ToggleRow("Vibration feedback", value.vibration) { onChange(value.copy(vibration = !value.vibration)) }
         ToggleRow("Keep screen awake", value.keepAwake) { onChange(value.copy(keepAwake = !value.keepAwake)) }
         ToggleRow("Umpire left / right view", value.umpireMode) { onChange(value.copy(umpireMode = !value.umpireMode)) }
+        TextLabel("COURT COLOURS", 10, Modifier.padding(top = 14.dp, bottom = 3.dp), Color.LightGray)
+        CourtTheme.values().forEach { theme ->
+            ThemeRow(theme, value.courtTheme == theme) { onChange(value.copy(courtTheme = theme)) }
+        }
+        TextLabel("COURT NAMES", 10, Modifier.padding(top = 14.dp, bottom = 3.dp), Color.LightGray)
+        NameField("My side", value.mySideName) { onChange(value.copy(mySideName = it.take(24))) }
+        NameField("Opponent", value.opponentName) { onChange(value.copy(opponentName = it.take(24))) }
         MenuRow("Privacy policy", "How local scores and optional live sharing are handled") {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL)))
         }
     }
+}
+
+@Composable
+private fun ThemeRow(theme: CourtTheme, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (selected) Color.White else Color(0xFF282828)).clickable(onClick = onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.width(22.dp).height(22.dp).clip(RoundedCornerShape(6.dp)).background(courtColor(theme, Side.ME, false)))
+            Box(Modifier.width(22.dp).height(22.dp).clip(RoundedCornerShape(6.dp)).background(courtColor(theme, Side.OPPONENT, false)))
+            TextLabel(theme.label, 13, color = if (selected) Color.Black else Color.White)
+        }
+        if (selected) TextLabel("✓", 14, color = Color.Black)
+    }
+}
+
+@Composable
+private fun NameField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { TextLabel(label, 11, color = Color.LightGray) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+    )
 }
 
 @Composable

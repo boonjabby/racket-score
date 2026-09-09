@@ -20,7 +20,7 @@ class WatchFeedback(private val context: Context) : TextToSpeech.OnInitListener 
     fun announce(text: String) {
         if (!speechReady) return
         speech.stop()
-        speech.setSpeechRate(0.92f)
+        speech.setSpeechRate(1.12f)
         speech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "racket-score")
     }
 
