@@ -1,0 +1,2 @@
+-- Production migration managed through Supabase: creates round_robin_participants,
+-- authenticated join_round_robin(), ownership RLS, and one scorer per court.
