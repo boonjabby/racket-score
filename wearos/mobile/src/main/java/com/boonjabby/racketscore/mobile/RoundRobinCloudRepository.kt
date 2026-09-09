@@ -14,6 +14,30 @@ internal class RoundRobinCloudRepository(context: Context) {
     private val executor = Executors.newSingleThreadExecutor()
     private val random = SecureRandom()
 
+    data class Participant(val id: String, val name: String, val status: String, val role: String, val court: Int?)
+
+    fun participants(callback: (List<Participant>, String?) -> Unit) {
+        val code = preferences.getString(CODE, null) ?: return callback(emptyList(), null)
+        executor.execute { runCatching {
+            val auth = ensureSession()
+            val matches = org.json.JSONArray(request("/rest/v1/live_matches?public_code=eq.$code&select=id", "GET", auth.token))
+            if (matches.length() == 0) return@runCatching emptyList()
+            val matchId = matches.getJSONObject(0).getString("id")
+            val rows = org.json.JSONArray(request("/rest/v1/round_robin_participants?match_id=eq.$matchId&select=id,display_name,status,role,assigned_court&order=created_at.asc", "GET", auth.token))
+            (0 until rows.length()).map { index -> rows.getJSONObject(index).let { Participant(it.getString("id"), it.getString("display_name"), it.getString("status"), it.getString("role"), if (it.isNull("assigned_court")) null else it.getInt("assigned_court")) } }
+        }.onSuccess { callback(it, null) }.onFailure { callback(emptyList(), friendlyError(it)) } }
+    }
+
+    fun setParticipant(id: String, status: String, court: Int?, callback: (String?) -> Unit) = executor.execute {
+        runCatching {
+            val auth = ensureSession()
+            val approved = status == "approved"
+            request("/rest/v1/round_robin_participants?id=eq.$id", "PATCH", auth.token, JSONObject()
+                .put("status", status).put("role", if (approved && court != null) "scorer" else "viewer")
+                .put("assigned_court", court ?: JSONObject.NULL), "return=minimal")
+        }.onSuccess { callback(null) }.onFailure { callback(friendlyError(it)) }
+    }
+
     fun loadState(): CloudShareState {
         val code = preferences.getString(CODE, null)
         return CloudShareState(

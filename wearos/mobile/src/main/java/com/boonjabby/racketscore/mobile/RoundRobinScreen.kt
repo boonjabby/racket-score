@@ -61,6 +61,9 @@ fun RoundRobinScreen() {
     var editingCourt by remember { mutableStateOf<Int?>(null) }
     var shareVisible by remember { mutableStateOf(false) }
     var shareState by remember { mutableStateOf(cloud.loadState()) }
+    var participants by remember { mutableStateOf(emptyList<RoundRobinCloudRepository.Participant>()) }
+    var participantMessage by remember { mutableStateOf<String?>(null) }
+    fun refreshParticipants() = cloud.participants { rows, error -> mainHandler.post { participants = rows; participantMessage = error } }
     fun store(next: RobinSession) {
         session = next.also(repository::save)
         if (shareState.sharing) cloud.publish(next) { state -> mainHandler.post { shareState = state } }
@@ -78,7 +81,7 @@ fun RoundRobinScreen() {
         Text("ROUND ROBIN", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Black)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Live courts", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
-            RobinLink(if (shareState.sharing) "● LIVE" else "SHARE", { shareVisible = true })
+            RobinLink(if (shareState.sharing) "● LIVE" else "SHARE", { shareVisible = true; if (shareState.sharing) refreshParticipants() })
         }
         Text("Each court can finish and restart independently.", color = Color.LightGray, fontSize = 13.sp)
         Spacer(Modifier.height(12.dp))
@@ -128,13 +131,18 @@ fun RoundRobinScreen() {
     if (shareVisible) RobinShareOverlay(
         state = shareState,
         onClose = { shareVisible = false },
-        onStart = { cloud.start(current) { state -> mainHandler.post { shareState = state } } },
+        onStart = { cloud.start(current) { state -> mainHandler.post { shareState = state; if (state.sharing) refreshParticipants() } } },
         onStop = { cloud.stop { state -> mainHandler.post { shareState = state } } },
+        participants = participants,
+        participantMessage = participantMessage,
+        courtCount = current.courtCount,
+        onRefresh = ::refreshParticipants,
+        onParticipant = { id, status, court -> cloud.setParticipant(id, status, court) { error -> mainHandler.post { participantMessage = error; refreshParticipants() } } },
     )
 }
 
 @Composable
-private fun RobinShareOverlay(state: CloudShareState, onClose: () -> Unit, onStart: () -> Unit, onStop: () -> Unit) {
+private fun RobinShareOverlay(state: CloudShareState, onClose: () -> Unit, onStart: () -> Unit, onStop: () -> Unit, participants: List<RoundRobinCloudRepository.Participant>, participantMessage: String?, courtCount: Int, onRefresh: () -> Unit, onParticipant: (String, String, Int?) -> Unit) {
     val context = LocalContext.current
     val link = "https://boonjabby.github.io/racket-score/event.html?code=${state.code.orEmpty()}"
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -158,6 +166,11 @@ private fun RobinShareOverlay(state: CloudShareState, onClose: () -> Unit, onSta
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Follow our Racket Score Round Robin live: $link\nCode: ${state.code}") }, "Share event"))
                         }
                         RobinAction("COPY LINK", true) { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Racket Score event", link)) }
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("JOIN REQUESTS", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Black); RobinLink("REFRESH", onRefresh) }
+                        if (participants.isEmpty()) Text("No players have requested to join yet.", color = Color.Gray, fontSize = 12.sp)
+                        participants.forEach { player -> ParticipantCard(player, courtCount, onParticipant) }
+                        participantMessage?.let { Text(it, color = Color(0xFFFFC1B8), fontSize = 11.sp) }
                         RobinAction("STOP SHARING", true, onStop)
                     } else {
                         Text("Create a temporary event code. Anyone with it can view courts, scores and the waiting queue, but only this phone can make changes.", color = Color.LightGray, fontSize = 13.sp)
@@ -166,6 +179,23 @@ private fun RobinShareOverlay(state: CloudShareState, onClose: () -> Unit, onSta
                     state.message?.let { Text(it, color = Color(0xFFFFC1B8), fontSize = 12.sp) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ParticipantCard(player: RoundRobinCloudRepository.Participant, courtCount: Int, onChange: (String, String, Int?) -> Unit) {
+    var courtsOpen by remember(player.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFF292929)).padding(13.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(player.name, color = Color.White, fontWeight = FontWeight.Bold); Text(player.status.uppercase(), color = if (player.status == "approved") Color(0xFF9FDDBA) else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+        if (player.court != null) Text("SCORER · COURT ${player.court}", color = Color(0xFF9FDDBA), fontSize = 10.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (player.status != "approved") RobinLink("APPROVE", { onChange(player.id, "approved", null) })
+            if (player.status != "rejected") RobinLink("REJECT", { onChange(player.id, "rejected", null) })
+            if (player.status == "approved") RobinLink(if (player.court == null) "ASSIGN COURT" else "CHANGE COURT", { courtsOpen = true })
+        }
+        if (courtsOpen) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            (1..courtCount).forEach { court -> Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).clickable { courtsOpen = false; onChange(player.id, "approved", court) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("$court", color = Color.Black, fontWeight = FontWeight.Black) } }
         }
     }
 }
